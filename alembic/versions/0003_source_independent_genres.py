@@ -24,6 +24,25 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             """
+            UPDATE media_genres mg
+            SET genre_id = keeper.id
+            FROM genres duplicate
+            JOIN genres keeper ON keeper.name_new = duplicate.name_new
+            WHERE mg.genre_id = duplicate.id
+              AND duplicate.id > keeper.id
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM media_genres existing
+                  WHERE existing.media_id = mg.media_id
+                    AND existing.genre_id = keeper.id
+              )
+            """
+        )
+    )
+
+    op.execute(
+        sa.text(
+            """
             DELETE FROM media_genres mg
             USING genres duplicate, genres keeper
             WHERE mg.genre_id = duplicate.id
@@ -36,18 +55,16 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             """
-            UPDATE media_genres mg
-            SET genre_id = keeper.id
-            FROM genres duplicate
-            JOIN genres keeper ON keeper.name_new = duplicate.name_new
-            WHERE mg.genre_id = duplicate.id
+            DELETE FROM genres duplicate
+            USING genres keeper
+            WHERE duplicate.name_new = keeper.name_new
               AND duplicate.id > keeper.id
             """
         )
     )
 
-    op.drop_column("genres", "mal_id")
     op.drop_index("ix_genres_mal_id", table_name="genres")
+    op.drop_column("genres", "mal_id")
     op.drop_column("genres", "name")
     op.alter_column("genres", "name_new", new_column_name="name", nullable=False)
     op.create_unique_constraint("uq_genre_name", "genres", ["name"])
