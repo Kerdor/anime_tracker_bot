@@ -10,7 +10,6 @@ class MangaLibClient(MediaProvider):
 
     def __init__(self, base_url: str = "https://mangalib.me") -> None:
         self.base_url = base_url.rstrip("/")
-        self.api_base_url = "https://api.cdnlibs.org/api"
         self.client = httpx.AsyncClient(
             timeout=15.0,
             http2=True,
@@ -71,7 +70,7 @@ class MangaLibClient(MediaProvider):
             "status": (item.get("status") or {}).get("label") if isinstance(item.get("status"), dict) else None,
             "description": item.get("summary"),
             "genres": genres,
-            "url": item.get("href") or f"{self_base_url}/{item.get('slug')}",
+            "url": item.get("href") or f"https://mangalib.me/{item.get('slug')}",
             "episodes": None,
             "chapters": chapters,
             "volumes": None,
