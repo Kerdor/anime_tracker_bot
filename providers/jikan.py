@@ -4,9 +4,12 @@ import re
 import httpx
 
 from config import settings
+from providers.base import MediaProvider
 
 
-class JikanClient:
+class JikanClient(MediaProvider):
+    name = "mal"
+
     def __init__(self) -> None:
         self.base_url = settings.jikan_base_url.rstrip("/")
         self.client = httpx.AsyncClient(timeout=15.0)
@@ -34,13 +37,14 @@ class JikanClient:
         title_variants = [title.get("title") for title in titles if title.get("title")]
 
         return {
+            "provider": "mal",
+            "external_id": str(item["mal_id"]),
             "mal_id": item["mal_id"],
             "title": item.get("title") or item.get("title_english") or "Без названия",
             "title_english": item.get("title_english"),
             "title_original": item.get("title_japanese"),
             "title_variants": title_variants,
-            "image_url": (item.get("images") or {}).get("jpg", {}).get("large_image_url")
-            or (item.get("images") or {}).get("jpg", {}).get("image_url"),
+            "image_url": (item.get("images") or {}).get("jpg", {}).get("large_image_url") or (item.get("images") or {}).get("jpg", {}).get("image_url"),
             "score": item.get("score"),
             "year": int(year) if str(year).isdigit() else None,
             "status": item.get("status"),
@@ -74,10 +78,11 @@ class JikanClient:
         results.sort(key=rank, reverse=True)
         return results
 
-    async def get_media(self, mal_id: int, media_type: str) -> dict[str, Any]:
+    async def get_media(self, external_id: str, media_type: str) -> dict[str, Any] | None:
         endpoint = "anime" if media_type == "anime" else "manga"
-        data = await self._get(f"{endpoint}/{mal_id}/full")
-        return self._parse_media(data.get("data", {}), media_type)
+        data = await self._get(f"{endpoint}/{external_id}/full")
+        item = data.get("data")
+        return self._parse_media(item, media_type) if item else None
 
     async def close(self) -> None:
         await self.client.aclose()
