@@ -86,10 +86,13 @@ async def save_media(session: AsyncSession, data: dict) -> Media:
             session.add(MediaSource(media_id=media.id, source=provider, source_id=external_id))
 
     for name in data.get("genres", []):
+        name = str(name).strip()
+        if not name:
+            continue
         result = await session.execute(select(Genre).where(Genre.name == name))
         genre = result.scalar_one_or_none()
         if genre is None:
-            genre = Genre(mal_id=abs(hash(name)) % 2_000_000_000, name=name)
+            genre = Genre(name=name)
             session.add(genre)
             await session.flush()
         if genre not in media.genres:
