@@ -5,14 +5,24 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from bot.keyboards import (
+    library_sections,
     main_menu,
     media_keyboard,
     media_type_menu,
+    rating_keyboard,
     search_results_keyboard,
     status_keyboard,
 )
-from bot.library import get_library_page, library_keyboard, library_sections, library_status_keyboard
-from database.repository import add_to_library, get_or_create_user, save_media
+from bot.library import get_library_page, library_keyboard, library_status_keyboard
+from database.repository import (
+    add_to_library,
+    get_library_entry,
+    get_or_create_user,
+    remove_from_library,
+    save_media,
+    update_score,
+    update_status,
+)
 from database.session import SessionLocal
 from providers.jikan import JikanClient
 
@@ -51,10 +61,7 @@ async def library_handler(callback: CallbackQuery) -> None:
 async def library_type_handler(callback: CallbackQuery) -> None:
     media_type = callback.data.split(":", 1)[1]
     title = "🎬 Аниме" if media_type == "anime" else "📚 Манга"
-    await callback.message.edit_text(
-        f"{title}\n\nВыбери статус:",
-        reply_markup=library_status_keyboard(media_type),
-    )
+    await callback.message.edit_text(f"{title}\n\nВыбери статус:", reply_markup=library_status_keyboard(media_type))
     await callback.answer()
 
 
@@ -87,10 +94,7 @@ async def library_filter_handler(callback: CallbackQuery) -> None:
             lines.append(f"{index}. {entry.media.title} {score}")
         text = "\n".join(lines)
 
-    await callback.message.edit_text(
-        text,
-        reply_markup=library_keyboard(entries, page, total_pages, status),
-    )
+    await callback.message.edit_text(text, reply_markup=library_keyboard(entries, page, total_pages, status))
     await callback.answer()
 
 
@@ -110,10 +114,7 @@ async def library_page_handler(callback: CallbackQuery) -> None:
         score = f"⭐ {entry.score}" if entry.score is not None else ""
         lines.append(f"{index}. {entry.media.title} {score}")
 
-    await callback.message.edit_text(
-        "\n".join(lines),
-        reply_markup=library_keyboard(entries, page, total_pages, status),
-    )
+    await callback.message.edit_text("\n".join(lines), reply_markup=library_keyboard(entries, page, total_pages, status))
     await callback.answer()
 
 
@@ -122,7 +123,72 @@ async def library_noop_handler(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data == "search")
+@router.callback_query(F.data.startswith("library_media:"))
+async def library_media_handler(callback: CallbackQuery) -> None:
+    _, media_type, mal_id = callback.data.split(":")
+    async with SessionLocal() as session:
+        user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
+        entry = await get_library_entry(session, user.id, int(mal_id))
+
+    if entry is None:
+        await callback.answer("Произведение не найдено в библиотеке.", show_alert=True)
+        return
+
+    score = f"⭐ {entry.score}/10" if entry.score is not None else "⭐ Не оценено"
+    text = f"<b>{entry.media.title}</b>\n\nСтатус: {entry.status}\nОценка: {score}"
+    await callback.message.edit_text(text, reply_markup=library_actions(media_type, int(mal_id), entry.status, entry.score))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("edit_status:"))
+async def edit_status_handler(callback: CallbackQuery) -> None:
+    _, media_type, mal_id = callback.data.split(":")
+    await callback.message.edit_text("🔄 Выбери новый статус:", reply_markup=status_keyboard(media_type, int(mal_id)))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rate:"))
+async def rate_handler(callback: CallbackQuery) -> None:
+    _, media_type, mal_id = callback.data.split(":")
+    await callback.message.edit_text("⭐ Выбери оценку от 1 до 10:", reply_markup=rating_keyboard(media_type, int(mal_id)))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rating:"))
+async def rating_handler(callback: CallbackQuery) -> None:
+    _, media_type, mal_id, score = callback.data.split(":")
+    async with SessionLocal() as session:
+        user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
+        entry = await get_library_entry(session, user.id, int(mal_id))
+        if entry is None:
+            await callback.answer("Произведение не найдено.", show_alert=True)
+            return
+        await update_score(session, entry, int(score))
+        status = entry.status
+
+    await callback.message.edit_text(
+        f"⭐ Оценка сохранена: {score}/10",
+        reply_markup=library_actions(media_type, int(mal_id), status, int(score)),
+    )
+    await callback.answer("Сохранено!")
+
+
+@router.callback_query(F.data.startswith("remove:"))
+async def remove_handler(callback: CallbackQuery) -> None:
+    _, media_type, mal_id = callback.data.split(":")
+    async with SessionLocal() as session:
+        user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
+        entry = await get_library_entry(session, user.id, int(mal_id))
+        if entry is None:
+            await callback.answer("Произведение уже удалено.", show_alert=True)
+            return
+        await remove_from_library(session, entry)
+
+    await callback.message.edit_text("🗑 Произведение удалено из библиотеки.", reply_markup=main_menu())
+    await callback.answer("Удалено")
+
+
+@router.callback_query(F.data.startswith("search"))
 async def search_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.message.edit_text("🔎 Что будем искать?", reply_markup=media_type_menu())
@@ -144,7 +210,6 @@ async def search_query_handler(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     media_type = data["media_type"]
     query = (message.text or "").strip()
-
     if not query:
         await message.answer("Введи название произведения.")
         return
@@ -221,7 +286,7 @@ async def status_handler(callback: CallbackQuery) -> None:
     async with SessionLocal() as session:
         user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
         media = await save_media(session, item)
-        await add_to_library(session, user.id, media, status)
+        entry = await add_to_library(session, user.id, media, status)
 
     status_names = {
         "planning": "🟡 Хочу",
@@ -233,6 +298,6 @@ async def status_handler(callback: CallbackQuery) -> None:
 
     await callback.message.edit_text(
         f"✅ <b>{item['title']}</b> добавлено в библиотеку.\n\nСтатус: {status_names[status]}",
-        reply_markup=main_menu(),
+        reply_markup=library_actions(media_type, int(mal_id), status, entry.score),
     )
     await callback.answer("Сохранено!")
