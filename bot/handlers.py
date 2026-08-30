@@ -3,6 +3,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+from aiogram.utils.markdown import hbold, hlink
 
 from bot.keyboards import (
     library_actions,
@@ -22,6 +23,7 @@ from database.repository import (
     remove_from_library,
     save_media,
     update_score,
+    update_status,
 )
 from database.session import SessionLocal
 from providers.jikan import JikanClient
@@ -32,6 +34,70 @@ router = Router()
 class SearchState(StatesGroup):
     media_type = State()
     query = State()
+
+
+STATUS_NAMES = {
+    "planning": "🟡 Хочу",
+    "watching": "🔵 Смотрю / Читаю",
+    "completed": "🟢 Завершено",
+    "paused": "⚪ На паузе",
+    "dropped": "🔴 Брошено",
+}
+
+
+def media_card_text(item: dict) -> str:
+    title = item["title"]
+    original = item.get("title_original")
+    score = f"⭐ {item['score']}" if item.get("score") is not None else "⭐ —"
+    year = item.get("year") or "—"
+    genres = ", ".join(item.get("genres", [])) or "—"
+    description = item.get("description") or "Описание отсутствует."
+
+    if len(description) > 1000:
+        description = description[:997] + "..."
+
+    lines = [hbold(title)]
+    if original and original != title:
+        lines.append(f"{original}")
+    lines.extend(["", f"📅 {year}  •  {score}"])
+
+    if item["type"] == "anime":
+        episodes = item.get("episodes") or "—"
+        lines.append(f"🎬 Эпизоды: {episodes}")
+    else:
+        chapters = item.get("chapters") or "—"
+        volumes = item.get("volumes") or "—"
+        lines.append(f"📖 Главы: {chapters}  •  Томов: {volumes}")
+
+    lines.extend([
+        f"🏷 Жанры: {genres}",
+        "",
+        description,
+    ])
+
+    if item.get("url"):
+        lines.extend(["", hlink("🔗 MyAnimeList", item["url"])])
+
+    return "\n".join(lines)
+
+
+async def load_media(mal_id: int, media_type: str) -> dict | None:
+    client = JikanClient()
+    try:
+        return await client.get_media(mal_id, media_type)
+    except Exception:
+        return None
+    finally:
+        await client.close()
+
+
+async def send_media_card(message: Message, item: dict, reply_markup=None) -> None:
+    text = media_card_text(item)
+    image_url = item.get("image_url")
+    if image_url:
+        await message.answer_photo(photo=image_url, caption=text, reply_markup=reply_markup)
+    else:
+        await message.answer(text, reply_markup=reply_markup)
 
 
 @router.message(CommandStart())
@@ -76,25 +142,18 @@ async def library_filter_handler(callback: CallbackQuery) -> None:
         entries, total_pages = await get_library_page(session, user.id, media_type, status_filter, page)
 
     title = "🎬 Аниме" if media_type == "anime" else "📚 Манга"
-    status_names = {
-        "all": "Все",
-        "planning": "Хочу",
-        "watching": "Смотрю / Читаю",
-        "completed": "Завершено",
-        "paused": "На паузе",
-        "dropped": "Брошено",
-    }
-
     if not entries:
-        text = f"{title}\n\nСтатус: {status_names[status]}\n\nЗдесь пока ничего нет."
-    else:
-        lines = [f"{title}", f"Статус: {status_names[status]}", ""]
-        for index, entry in enumerate(entries, page * 8 + 1):
-            score = f"⭐ {entry.score}" if entry.score is not None else ""
-            lines.append(f"{index}. {entry.media.title} {score}")
-        text = "\n".join(lines)
+        text = f"{title}\n\nСтатус: {STATUS_NAMES.get(status, 'Все')}\n\nЗдесь пока ничего нет."
+        await callback.message.edit_text(text, reply_markup=library_status_keyboard(media_type))
+        await callback.answer()
+        return
 
-    await callback.message.edit_text(text, reply_markup=library_keyboard(entries, page, total_pages, status))
+    lines = [f"{title}", f"Статус: {STATUS_NAMES.get(status, '📋 Все')}", ""]
+    for index, entry in enumerate(entries, page * 8 + 1):
+        score = f"⭐ {entry.score}" if entry.score is not None else ""
+        lines.append(f"{index}. {entry.media.title} {score}")
+
+    await callback.message.edit_text("\n".join(lines), reply_markup=library_keyboard(entries, page, total_pages, status))
     await callback.answer()
 
 
@@ -126,31 +185,38 @@ async def library_noop_handler(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("library_media:"))
 async def library_media_handler(callback: CallbackQuery) -> None:
     _, media_type, mal_id = callback.data.split(":")
+    mal_id = int(mal_id)
+
     async with SessionLocal() as session:
         user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
-        entry = await get_library_entry(session, user.id, int(mal_id))
+        entry = await get_library_entry(session, user.id, mal_id)
 
     if entry is None:
         await callback.answer("Произведение не найдено в библиотеке.", show_alert=True)
         return
 
-    score = f"⭐ {entry.score}/10" if entry.score is not None else "⭐ Не оценено"
-    text = f"<b>{entry.media.title}</b>\n\nСтатус: {entry.status}\nОценка: {score}"
-    await callback.message.edit_text(text, reply_markup=library_actions(media_type, int(mal_id), entry.status, entry.score))
+    item = await load_media(mal_id, media_type)
+    if item is None:
+        await callback.answer("Не удалось загрузить карточку.", show_alert=True)
+        return
+
+    item["user_score"] = entry.score
+    await callback.message.delete()
+    await send_media_card(callback.message, item, library_actions(media_type, mal_id, entry.status, entry.score))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("edit_status:"))
 async def edit_status_handler(callback: CallbackQuery) -> None:
     _, media_type, mal_id = callback.data.split(":")
-    await callback.message.edit_text("🔄 Выбери новый статус:", reply_markup=status_keyboard(media_type, int(mal_id)))
+    await callback.message.edit_reply_markup(reply_markup=status_keyboard(media_type, int(mal_id)))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("rate:"))
 async def rate_handler(callback: CallbackQuery) -> None:
     _, media_type, mal_id = callback.data.split(":")
-    await callback.message.edit_text("⭐ Выбери оценку от 1 до 10:", reply_markup=rating_keyboard(media_type, int(mal_id)))
+    await callback.message.edit_reply_markup(reply_markup=rating_keyboard(media_type, int(mal_id)))
     await callback.answer()
 
 
@@ -166,11 +232,8 @@ async def rating_handler(callback: CallbackQuery) -> None:
         await update_score(session, entry, int(score))
         status = entry.status
 
-    await callback.message.edit_text(
-        f"⭐ Оценка сохранена: {score}/10",
-        reply_markup=library_actions(media_type, int(mal_id), status, int(score)),
-    )
-    await callback.answer("Сохранено!")
+    await callback.message.edit_reply_markup(reply_markup=library_actions(media_type, int(mal_id), status, int(score)))
+    await callback.answer(f"Оценка {score}/10 сохранена!")
 
 
 @router.callback_query(F.data.startswith("remove:"))
@@ -184,7 +247,8 @@ async def remove_handler(callback: CallbackQuery) -> None:
             return
         await remove_from_library(session, entry)
 
-    await callback.message.edit_text("🗑 Произведение удалено из библиотеки.", reply_markup=main_menu())
+    await callback.message.delete()
+    await callback.message.answer("🗑 Произведение удалено из библиотеки.", reply_markup=main_menu())
     await callback.answer("Удалено")
 
 
@@ -241,44 +305,29 @@ async def search_query_handler(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("media:"))
 async def media_handler(callback: CallbackQuery) -> None:
     _, media_type, mal_id = callback.data.split(":")
-    client = JikanClient()
-    try:
-        results = await client.search(str(mal_id), media_type)
-        item = next((item for item in results if item["mal_id"] == int(mal_id)), None)
-    except Exception:
-        item = None
-    finally:
-        await client.close()
+    item = await load_media(int(mal_id), media_type)
 
     if item is None:
-        await callback.answer("Не удалось загрузить произведение.", show_alert=True)
+        await callback.answer("Не удалось загрузить карточку.", show_alert=True)
         return
 
-    score = f"⭐ {item['score']}" if item["score"] is not None else "⭐ —"
-    year = item["year"] or "—"
-    text = f"<b>{item['title']}</b>\n\n{year} • {score}\n\nMAL ID: {item['mal_id']}"
-    await callback.message.edit_text(text, reply_markup=media_keyboard(media_type, int(mal_id)))
+    await callback.message.delete()
+    await send_media_card(callback.message, item, media_keyboard(media_type, int(mal_id)))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("add:"))
 async def add_handler(callback: CallbackQuery) -> None:
     _, media_type, mal_id = callback.data.split(":")
-    await callback.message.edit_text("📚 Выбери статус произведения:", reply_markup=status_keyboard(media_type, int(mal_id)))
+    await callback.message.edit_reply_markup(reply_markup=status_keyboard(media_type, int(mal_id)))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("status:"))
 async def status_handler(callback: CallbackQuery) -> None:
     _, media_type, mal_id, status = callback.data.split(":")
-    client = JikanClient()
-    try:
-        results = await client.search(str(mal_id), media_type)
-        item = next((item for item in results if item["mal_id"] == int(mal_id)), None)
-    except Exception:
-        item = None
-    finally:
-        await client.close()
+    mal_id = int(mal_id)
+    item = await load_media(mal_id, media_type)
 
     if item is None:
         await callback.answer("Не удалось сохранить произведение.", show_alert=True)
@@ -289,16 +338,5 @@ async def status_handler(callback: CallbackQuery) -> None:
         media = await save_media(session, item)
         entry = await add_to_library(session, user.id, media, status)
 
-    status_names = {
-        "planning": "🟡 Хочу",
-        "watching": "🔵 Смотрю / Читаю",
-        "completed": "🟢 Завершено",
-        "paused": "⚪ На паузе",
-        "dropped": "🔴 Брошено",
-    }
-
-    await callback.message.edit_text(
-        f"✅ <b>{item['title']}</b> добавлено в библиотеку.\n\nСтатус: {status_names[status]}",
-        reply_markup=library_actions(media_type, int(mal_id), status, entry.score),
-    )
-    await callback.answer("Сохранено!")
+    await callback.message.edit_reply_markup(reply_markup=library_actions(media_type, mal_id, status, entry.score))
+    await callback.answer(f"Сохранено: {STATUS_NAMES[status]}")
