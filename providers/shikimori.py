@@ -10,7 +10,11 @@ class ShikimoriClient(MediaProvider):
 
     def __init__(self, base_url: str = "https://shikimori.one/api") -> None:
         self.base_url = base_url.rstrip("/")
-        self.client = httpx.AsyncClient(timeout=15.0, headers={"User-Agent": "anime_tracker_bot/1.0"})
+        self.client = httpx.AsyncClient(
+            timeout=15.0,
+            follow_redirects=True,
+            headers={"User-Agent": "anime_tracker_bot/1.0"},
+        )
 
     async def search(self, query: str, media_type: str) -> list[dict[str, Any]]:
         endpoint = "animes" if media_type == "anime" else "mangas"
