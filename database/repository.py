@@ -28,33 +28,38 @@ async def get_media(session: AsyncSession, media_id: int) -> Media | None:
     return result.scalar_one_or_none()
 
 
-async def get_media_by_source(session: AsyncSession, source: str, source_id: str) -> Media | None:
+async def get_media_by_source(session: AsyncSession, source: str, source_id: str, media_type: str) -> Media | None:
     result = await session.execute(
         select(Media)
         .join(MediaSource)
         .options(selectinload(Media.sources), selectinload(Media.genres))
-        .where(MediaSource.source == source, MediaSource.source_id == str(source_id))
+        .where(
+            MediaSource.source == source,
+            MediaSource.source_id == str(source_id),
+            MediaSource.media_type == media_type,
+        )
     )
     return result.scalar_one_or_none()
 
 
 async def save_media(session: AsyncSession, data: dict) -> Media:
+    media_type = data["type"]
     source = data.get("provider")
     source_id = data.get("provider_id")
     media = None
 
     if source and source_id:
-        media = await get_media_by_source(session, source, str(source_id))
+        media = await get_media_by_source(session, source, str(source_id), media_type)
 
     if media is None:
         for provider, external_id in data.get("source_ids", {}).items():
-            media = await get_media_by_source(session, provider, str(external_id))
+            media = await get_media_by_source(session, provider, str(external_id), media_type)
             if media is not None:
                 break
 
     if media is None:
         media = Media(
-            type=data["type"],
+            type=media_type,
             title=data["title"],
             title_original=data.get("title_original"),
             description=data.get("description"),
@@ -78,12 +83,22 @@ async def save_media(session: AsyncSession, data: dict) -> Media:
     if source and source_id:
         source_ids[source] = str(source_id)
 
-    existing_sources = {(item.source, item.source_id): item for item in media.sources}
+    existing_sources = {
+        (item.source, item.source_id, item.media_type): item
+        for item in media.sources
+    }
     for provider, external_id in source_ids.items():
         external_id = str(external_id)
-        key = (provider, external_id)
+        key = (provider, external_id, media_type)
         if key not in existing_sources:
-            session.add(MediaSource(media_id=media.id, source=provider, source_id=external_id))
+            session.add(
+                MediaSource(
+                    media_id=media.id,
+                    source=provider,
+                    source_id=external_id,
+                    media_type=media_type,
+                )
+            )
 
     for name in data.get("genres", []):
         name = str(name).strip()
