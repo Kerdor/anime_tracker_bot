@@ -1,150 +1,176 @@
 # PROJECT STATE — Anime Tracker Bot
 
-> **Purpose:** This file is the canonical handoff/context document for continuing development of `anime_tracker_bot` from a new chat.
+> **Canonical handoff document.** This file describes the current product decisions, architecture, repository state, completed work, known problems and the exact next steps for continuing development in a new chat.
 >
-> **IMPORTANT:** A new chat should read this file first and treat it as the primary project context. Do not make the user repeat the project history unless something genuinely contradicts this file or the current repository state.
+> **Repository:** `https://github.com/Kerdor/anime_tracker_bot`
+>
+> **Branch:** `main`
+>
+> **Last verified repository commit:** `7a11adc5e7078f55955c2a83500c3b56cef98394` (`fix: map MangaLib Shikimori IDs correctly`)
+>
+> **Important:** The actual repository is authoritative for code. This file is authoritative for product intent and project history. Before making changes, inspect the current repository and reconcile it with this document.
 
 ---
 
-## 0. CURRENT STATE — START HERE
+# 0. CURRENT STATE — READ THIS FIRST
 
-### Project
+The project is a Telegram tracker for anime and manga, being evolved into a **multi-source media tracker**.
 
-Telegram bot for tracking anime, manga, manhwa, manhua, novels/ranobe and potentially other media types.
-
-Repository:
-
-- `https://github.com/Kerdor/anime_tracker_bot`
-
-Default branch:
-
-- `main`
-
-The repository was cloned locally by the user into:
-
-- `C:\Users\nik_s\OneDrive\Рабочий стол\ALL\it\projects\python\tg\anime_tracker_bot`
-
-At the time of the handoff the local clone reported:
+The core architectural transition is now substantially implemented:
 
 ```text
-On branch main
-Your branch is up to date with 'origin/main'.
-nothing to commit, working tree clean
-```
-
-Python:
-
-```text
-Python 3.12.10
-```
-
-pip:
-
-```text
-pip 26.1.2
-```
-
-Alembic is installed globally and the command works, but `alembic current` currently cannot start because the project requires `BOT_TOKEN` and `DATABASE_URL` from `.env`.
-
-Docker is **not installed** on the user's machine. Do not assume Docker is available. The project currently documents PostgreSQL through Docker Compose, but the user is not comfortable with Docker/DB terminology and should not be burdened with it unless necessary.
-
-### Immediate architectural goal
-
-The project is currently being evolved from a simple MAL/Jikan tracker into a **multi-source media tracker**.
-
-The intended source architecture is:
-
-```text
-                         ┌── Shikimori
-                         │
-Telegram search ──→ MediaAggregator ──┼── MangaLib
-                         │
-                         ├── MAL / Jikan
-                         │
-                         └── Remanga (planned)
-                                  │
-                                  ↓
-                         Unified media result
-                                  │
-                                  ↓
-                         Internal Media entity
-                                  │
-                                  ├── MediaSource(s)
-                                  └── UserMedia
+Telegram user
+     │
+     ▼
+Bot handlers
+     │
+     ▼
+MediaAggregator
+     │
+     ├── Jikan / MAL
+     ├── Shikimori
+     └── MangaLib
+     │
+     ▼
+Unified search result
+     │
+     ▼
+Canonical Media
+     │
+     ├── MediaSource (one or more external IDs)
+     ├── Genre / MediaGenre
+     └── UserMedia
 ```
 
 The important design decision is:
 
-**Sources are providers of data, not separate user libraries.**
+**External providers are data sources, not separate libraries.**
 
-One real-world title should correspond to one internal `Media` entity, with multiple external source identifiers stored in `MediaSource`.
+A real-world work should be represented by one internal `Media` row whenever the system can confidently determine that multiple provider records refer to the same work. External IDs are stored in `MediaSource`.
 
-This is specifically intended to prevent duplicates when the same title exists on MAL, Shikimori, MangaLib, etc.
+## Current verified migration state
 
-### Current highest-priority task
+Alembic migrations now exist as:
 
-Finish the transition to a proper internal media model and integrate the multi-source aggregator into the actual bot flow.
+```text
+0001_initial
+    ↓
+0002_media_sources
+    ↓
+0003_source_independent_genres
+```
 
-The current repository contains pieces of this architecture, but they are not yet fully wired together. Do NOT assume that merely having `MediaAggregator`, `MediaSource`, Shikimori or MangaLib files means the whole feature is complete.
+Current Alembic head in the repository is therefore:
+
+```text
+0003_source_independent_genres
+```
+
+The old state document was stale and incorrectly claimed that only `0001_initial` existed. This document supersedes that information.
+
+## Current verified model state
+
+`database/models.py` contains:
+
+```text
+User
+Media
+MediaSource
+UserMedia
+Genre
+MediaGenre
+```
+
+`Media` no longer contains `mal_id`.
+
+`Genre` no longer contains `mal_id`.
+
+`MediaSource` stores external identities as:
+
+```text
+source
+source_id
+```
+
+with a unique constraint on:
+
+```text
+(source, source_id)
+```
+
+## Current verified bot flow
+
+`bot/handlers.py` now uses `MediaAggregator` for search and internal `media_id` callback values.
+
+The current callback design is source-independent:
+
+```text
+media:<media_id>
+add:<media_id>
+status:<media_id>:<status>
+edit_status:<media_id>
+rate:<media_id>
+rating:<media_id>:<score>
+remove:<media_id>
+library_media:<media_id>
+```
+
+This replaces the previous MAL-dependent callback concept.
+
+## Current providers
+
+Implemented provider classes:
+
+```text
+JikanClient
+ShikimoriClient
+MangaLibClient
+```
+
+Remanga is still planned and is not implemented yet.
+
+## Current known important limitation
+
+The project has **not yet been run end-to-end against a real local PostgreSQL database in this development session**. The repository contains migrations, but database migration execution and real Telegram/API testing still need to be verified locally.
+
+Do not tell the user that the whole bot is proven working until that test has been performed.
 
 ---
 
-# 1. PROJECT VISION
+# 1. PRODUCT VISION
 
-The bot is intended to become a polished Telegram tracker where a user can:
+The bot should become a polished Telegram tracker where a user can:
 
 - search anime;
 - search manga;
-- search manhwa;
-- search manhua;
-- search novels/ranobe;
-- add titles to a personal library;
+- later search manhwa;
+- later search manhua;
+- later search novels/ranobe;
+- add works to a personal library;
 - assign a status;
-- rate titles from 1 to 10;
-- browse library sections;
-- view statistics/profile;
-- eventually receive recommendations;
-- eventually use a Telegram Web App for a much richer UI.
+- rate works from 1 to 10;
+- browse the library;
+- view profile/statistics;
+- later receive recommendations;
+- later use a Telegram Web App with a richer interface.
 
-The user wants a **cool, polished, dark-themed product**, not just a primitive command bot.
-
-The first interface should support both:
-
-- ordinary Telegram commands/messages;
-- inline buttons;
-- eventually a Telegram Web App.
-
-The user agreed that the project can initially support Russian only, with the architecture prepared so additional languages can be added later.
-
----
-
-# 2. PRODUCT DECISIONS ALREADY MADE
-
-## 2.1 Language
+The user wants a product that feels **modern, dark, clean and polished**, not a primitive command-only bot.
 
 Initial language:
 
-- Russian (`ru`)
+```text
+Russian (ru)
+```
 
-Future:
+The architecture should make future localization possible without redesigning the whole application.
 
-- English and potentially other languages should be possible without redesigning the whole project.
+---
 
-A `language` field already exists on `User` with default `ru`.
+# 2. PRODUCT DECISIONS
 
-## 2.2 Visual style
+## 2.1 Statuses
 
-Desired UI:
-
-- dark;
-- modern;
-- clean;
-- visually attractive;
-- eventually especially polished in the Web App.
-
-## 2.3 Library statuses
-
-Current status set:
+The current status set is intentionally simple:
 
 ```text
 planning   = 🟡 Хочу
@@ -154,109 +180,102 @@ paused     = ⚪ На паузе
 dropped    = 🔴 Брошено
 ```
 
-The user explicitly said that **status is enough for the first version**. Do not invent a complicated progress system unless explicitly requested later.
+The user explicitly said that status is enough for the first version.
 
-## 2.4 Rating
+Do **not** introduce an RPG-like progress/energy/achievement system or complicated progress mechanics unless explicitly requested.
 
-Rating scale:
+## 2.2 Rating
 
-- 1–10
+User rating:
 
-The user wants users to be able to rate titles.
+```text
+1–10
+```
 
-## 2.5 Database philosophy
+## 2.3 Catalog strategy
 
-The user initially said they do **not** want to maintain a huge hand-built database of 100k+ anime and even larger manga/manhwa/etc. catalogs.
+The user does not want to manually maintain a giant catalog containing 100k+ anime and an even larger manga/manhwa/etc. catalog.
 
 Therefore:
 
-- external providers should supply catalog data;
-- our database should primarily store normalized/cached media entities and user data;
-- do not attempt to preload the entire external catalog into PostgreSQL;
-- data should be fetched/searchable from external providers and saved when useful.
+- providers supply external catalog data;
+- PostgreSQL stores normalized/cached media that the bot actually needs;
+- do not preload entire external catalogs;
+- do not turn the bot into a huge static database project.
 
-## 2.6 Scale
+## 2.4 Scale
 
 Initial expected scale:
 
-- several hundred users.
+```text
+hundreds of users
+```
 
-Architecture should not unnecessarily prevent:
+Architecture should remain reasonable for thousands of users, but there is no need to overengineer for millions yet.
 
-- thousands of users.
+## 2.5 Recommendations
 
-Do not overengineer for millions yet, but avoid obviously single-user/stateful architecture.
+Recommendations are planned but are **not current priority**.
 
-## 2.7 Recommendations
+Later they can use:
 
-Recommendation system is planned but **not the current task**.
+- ratings;
+- statuses;
+- genres;
+- authors/studios;
+- related works;
+- content similarity;
+- eventually collaborative filtering.
 
-Future recommendations should be based on user library/ratings/statuses and normalized media metadata.
-
-This is one reason the unified `Media` model is important.
+Do not introduce ML prematurely.
 
 ---
 
-# 3. EXTERNAL DATA SOURCES
+# 3. EXTERNAL SOURCES
 
-The user proposed using several sources rather than relying only on MAL:
+## 3.1 Jikan / MAL
 
-- Shikimori;
-- MangaLib;
-- Remanga;
-- MAL/Jikan;
-- potentially additional sources later.
+File:
 
-## 3.1 MAL / Jikan
+```text
+providers/jikan.py
+```
 
-Current provider:
-
-- `providers/jikan.py`
-
-Jikan is the MAL API provider.
-
-Current provider name:
+Provider name:
 
 ```text
 mal
 ```
 
-Jikan is valuable for:
+Jikan is the MAL API provider.
 
-- large global catalog;
+It is useful for:
+
+- large catalog coverage;
 - MAL IDs;
 - English/Japanese titles;
 - scores;
 - anime/manga metadata;
-- relations and other future metadata.
+- future relations and other metadata.
 
-Current search endpoint behavior:
+Search endpoints currently follow the standard type split:
 
-- anime → `/anime`
-- manga → `/manga`
+```text
+anime → /anime
+manga → /manga
+```
 
-Current search limit:
+The current search implementation uses a limit of 25 and has local title normalization/relevance ranking.
 
-- 25
-
-Current `JikanClient` also normalizes title strings and ranks search results by:
-
-1. exact title match;
-2. contains match;
-3. word overlap;
-4. MAL score as a secondary ranking factor.
-
-Important current limitation:
-
-**Jikan does not guarantee that a Russian title exists or that a Russian query will always find the desired title.**
-
-Therefore MAL/Jikan alone should NOT be treated as the final Russian search solution.
+Jikan should not be treated as the only Russian-language search source.
 
 ## 3.2 Shikimori
 
-Current provider:
+File:
 
-- `providers/shikimori.py`
+```text
+providers/shikimori.py
+```
 
 Provider name:
 
@@ -264,7 +283,7 @@ Provider name:
 shikimori
 ```
 
-Current default API base:
+Default API base:
 
 ```text
 https://shikimori.one/api
@@ -272,20 +291,18 @@ https://shikimori.one/api
 
 Search endpoints:
 
-- anime → `/animes`
-- manga → `/mangas`
+```text
+anime → /animes
+manga → /mangas
+```
 
-Search uses `search` and `limit` parameters.
+Shikimori is especially valuable for Russian titles because its API exposes `russian`.
 
-Shikimori data is particularly valuable because it exposes Russian title information through `russian`.
-
-The parser currently prefers the Russian title when available.
-
-It also extracts:
+The parser handles data including:
 
 - Shikimori ID;
-- MAL ID when supplied by Shikimori;
-- title;
+- MAL ID when supplied;
+- Russian title;
 - English/name title;
 - original title;
 - variants;
@@ -299,9 +316,11 @@ It also extracts:
 
 ## 3.3 MangaLib
 
-Current provider:
+File:
 
-- `providers/mangalib.py`
+```text
+providers/mangalib.py
+```
 
 Provider name:
 
@@ -309,20 +328,26 @@ Provider name:
 mangalib
 ```
 
-Current default base URL:
+Default base URL:
 
 ```text
 https://mangalib.me
 ```
 
-The current implementation searches `/search` with:
+Current search endpoint:
 
 ```text
- type=manga
- q=<query>
+/search
 ```
 
-The parser knows about fields such as:
+with parameters equivalent to:
+
+```text
+type=manga
+q=<query>
+```
+
+The current parser knows about fields such as:
 
 - `rus_name`;
 - `name`;
@@ -330,33 +355,76 @@ The parser knows about fields such as:
 - `otherNames`;
 - `id`;
 - `slug`;
-- `cover`;
+- `coverImage` / `cover`;
 - `releaseDate`;
-- `summary`.
+- `summary`;
+- categories;
+- chapters;
+- rating;
+- status.
 
-MangaLib is especially valuable for Russian-language manga/manhwa/manhua/etc. discovery.
+`get_media()` is now implemented using the MangaLib short-info endpoint.
 
-Current limitation:
+Current detail endpoint:
 
-- `get_media()` is not implemented and currently returns `None`.
+```text
+/manga-short-info
+```
 
-This must be fixed before treating MangaLib as a fully supported detail provider.
+The parser also reads `shiki_id` and stores it as:
+
+```text
+source_ids["shikimori"]
+```
+
+It must **not** be treated as a MAL ID.
+
+This was explicitly fixed in commit:
+
+```text
+7a11adc5
+fix: map MangaLib Shikimori IDs correctly
+```
 
 ## 3.4 Remanga
 
-Remanga was explicitly proposed as another Russian-language source.
+Remanga is planned.
 
-At the time of this state document, Remanga is **planned, not fully integrated**.
+It is **not currently implemented** in the provider list.
 
-Do not claim that Remanga is already implemented unless the repository has subsequently added a working provider.
+Do not claim it is supported until an actual provider has been added and wired into `MediaAggregator`.
 
 ---
 
-# 4. SEARCH REQUIREMENTS
+# 4. SEARCH ARCHITECTURE
 
-This is one of the most important product features.
+The intended search flow is:
 
-The user explicitly wants searches such as:
+```text
+User query
+   ↓
+normalize query
+   ↓
+parallel provider searches
+   ↓
+collect provider results
+   ↓
+normalize metadata
+   ↓
+identity matching
+   ↓
+title/year deduplication
+   ↓
+merge metadata
+   ↓
+rank
+   ↓
+Telegram result buttons
+```
+
+## Required search behavior
+
+The bot should eventually handle equivalent queries such as:
 
 ```text
 Розовая пора моей школьной жизни сплошной обман
@@ -365,133 +433,97 @@ Oregairu
 Yahari Ore no Seishun Love Comedy wa Machigatteiru
 ```
 
-to find the same title where appropriate.
+Search should understand:
 
-Therefore search should support:
-
-- Russian names;
-- English names;
-- original/Japanese names;
-- alternate names;
-- abbreviated names;
+- Russian titles;
+- English titles;
+- original/Japanese titles;
+- alternate titles;
+- abbreviated titles;
 - punctuation differences;
-- `ё` vs `е`;
-- differences in capitalization;
+- `ё` versus `е`;
+- capitalization differences;
 - reasonable word overlap.
 
-The current normalizer lowercases text, replaces `ё` with `е`, removes punctuation and collapses whitespace.
+Current normalization in `MediaAggregator`:
 
-### Important search architecture
+- lowercases;
+- replaces `ё` with `е`;
+- removes punctuation;
+- collapses whitespace.
 
-The correct long-term flow is:
+## Current aggregator implementation
+
+File:
 
 ```text
-user query
-    ↓
-normalize query
-    ↓
-parallel provider searches
-    ↓
-collect results
-    ↓
-normalize titles
-    ↓
-identity matching / deduplication
-    ↓
-merge metadata
-    ↓
-rank unified results
-    ↓
-show user
+providers/aggregator.py
 ```
 
-Do not simply show separate MAL/Shikimori/MangaLib results for the same title.
-
----
-
-# 5. MEDIA AGGREGATOR
-
-Current file:
-
-- `providers/aggregator.py`
-
-Current class:
+Class:
 
 ```python
 MediaAggregator
 ```
 
-It currently instantiates:
+Current default providers:
 
-```text
+```python
 JikanClient()
 ShikimoriClient()
 MangaLibClient()
 ```
 
-and runs provider searches concurrently using `asyncio.gather(..., return_exceptions=True)`.
+Searches run concurrently with:
 
-This means one provider failure should not destroy the whole search result.
-
-Current aggregator functionality:
-
-- normalize titles;
-- calculate search relevance;
-- collect provider/provider IDs;
-- merge exact provider identity matches;
-- merge MAL IDs where available;
-- perform a second title-based deduplication pass;
-- merge title variants/providers/source IDs;
-- rank by search score and external score.
-
-Current result metadata includes concepts such as:
-
-```text
-provider
-provider_id
-mal_id
-providers
-source_ids
-search_score
+```python
+asyncio.gather(..., return_exceptions=True)
 ```
 
-### Important limitation
+Therefore a provider failure should not remove all results.
 
-The current deduplication is still not a perfect cross-provider entity-resolution system.
+The aggregator currently:
 
-It is safe to match on strong external identity information, but **do not aggressively fuzzy-merge unrelated works** just because their names look similar.
+- normalizes titles;
+- scores search relevance;
+- collects provider IDs;
+- creates `source_ids` mappings;
+- merges exact provider identities;
+- preserves cross-source IDs;
+- performs a second title-based deduplication pass;
+- makes title deduplication year-aware;
+- merges variants and metadata;
+- ranks by search relevance and provider score.
 
-A wrong merge is worse than a duplicate.
+## Important limitation
 
-Future entity resolution should preferably use:
+Entity resolution is still heuristic.
 
-1. shared external IDs / known cross-links;
-2. strong normalized title matches;
-3. type/year/other metadata where useful;
-4. conservative fuzzy matching only when confidence is high.
+Never aggressively fuzzy-merge two works only because their names look similar.
+
+Preferred confidence order:
+
+1. same external provider ID;
+2. explicit cross-source identity such as a known MAL/Shikimori relation;
+3. strong normalized title match;
+4. type/year and additional metadata;
+5. conservative fuzzy matching only when confidence is high.
+
+A duplicate is safer than incorrectly merging two different works.
 
 ---
 
-# 6. CURRENT DATABASE MODEL
+# 5. DATABASE MODEL — CURRENT
 
-Current file:
-
-- `database/models.py`
-
-Current models:
+File:
 
 ```text
-User
-Media
-MediaSource
-UserMedia
-Genre
-MediaGenre
+database/models.py
 ```
 
-## 6.1 User
+## 5.1 User
 
-Fields include:
+Fields:
 
 ```text
 id
@@ -507,39 +539,39 @@ updated_at
 
 `language` defaults to `ru`.
 
-## 6.2 Media
+## 5.2 Media
 
-Current fields include:
+Current fields:
 
 ```text
 id
- type
- title
- title_original
- description
- image_url
- score
- year
- status
- created_at
- updated_at
+type
+title
+title_original
+description
+image_url
+score
+year
+status
+created_at
+updated_at
 ```
 
 Relationships:
 
-- `sources` → `MediaSource`
-- `library_entries` → `UserMedia`
-- `genres` → `Genre`
+```text
+sources
+library_entries
+genres
+```
 
-### Important
+**Important:** `Media` no longer has `mal_id`.
 
-The intended architecture is that `Media` is the internal canonical entity.
+The internal `Media.id` is the canonical identity used by the bot/library.
 
-It should NOT be tied to only MAL.
+## 5.3 MediaSource
 
-## 6.3 MediaSource
-
-Current model:
+Current fields:
 
 ```text
 id
@@ -554,22 +586,20 @@ Unique constraint:
 (source, source_id)
 ```
 
-This is the key model for multi-source support.
-
 Example:
 
 ```text
 Media #42
-  ├── mal       = 12345
-  ├── shikimori = 67890
-  └── mangalib  = 55555
+├── mal        → 12345
+├── shikimori  → 67890
+└── mangalib   → 55555
 ```
 
-All three should refer to the same internal `Media` when we know they represent the same work.
+All can point to one canonical `Media` when identity matching is reliable.
 
-## 6.4 UserMedia
+## 5.4 UserMedia
 
-Fields:
+Current fields:
 
 ```text
 id
@@ -587,139 +617,307 @@ Unique constraint:
 (user_id, media_id)
 ```
 
-This is the user's personal library relation.
+This is the user's library relation.
 
-## 6.5 Genre / MediaGenre
+## 5.5 Genre
 
-`Genre` currently has:
+Current fields:
 
 ```text
 id
-mal_id
 name
 ```
 
-`MediaGenre` is the many-to-many association.
+Unique constraint:
 
-### Future consideration
+```text
+name
+```
 
-The `Genre.mal_id` design is currently MAL-centric and may need to be generalized if genre information from multiple sources becomes important.
+Genre is now source-independent.
 
-Do not redesign this casually; preserve working behavior until there is a clear need.
+The previous MAL-specific `mal_id` was removed.
+
+## 5.6 MediaGenre
+
+Many-to-many relation:
+
+```text
+media_id
+ genre_id
+```
+
+with unique `(media_id, genre_id)`.
+
+The migration was specifically written to preserve existing `media_genres` links when duplicate genre names are consolidated.
 
 ---
 
-# 7. DATABASE / ALEMBIC STATUS
+# 6. ALEMBIC / MIGRATIONS — CURRENT
 
-Current migration directory:
+Directory:
 
 ```text
-alembic/
-└── versions/
-    └── 0001_initial.py
+alembic/versions/
 ```
 
-Current Alembic head:
+Current migrations:
+
+```text
+0001_initial.py
+0002_media_sources.py
+0003_source_independent_genres.py
+```
+
+## 6.1 0001_initial
+
+Creates the original schema.
+
+At that point `Media` and `Genre` were MAL-centric:
+
+```text
+Media.mal_id
+Genre.mal_id
+```
+
+## 6.2 0002_media_sources
+
+Revision:
+
+```text
+0002_media_sources
+```
+
+Revises:
 
 ```text
 0001_initial
 ```
 
-The project uses:
+Purpose:
 
-- PostgreSQL;
-- SQLAlchemy;
-- Alembic.
+- creates `media_sources`;
+- copies existing `media.mal_id` values into `media_sources` as source `mal`;
+- removes `media.mal_id`;
+- adds the `(source, source_id)` uniqueness rule.
 
-`README.md` currently documents PostgreSQL via Docker Compose.
+This is the main migration from MAL identity to provider identity.
 
-### User environment
+## 6.3 0003_source_independent_genres
 
-Docker is NOT installed on the user's Windows machine.
-
-The user is not experienced with database administration and does not understand terms such as migrations intuitively.
-
-When guiding the user:
-
-- explain only what is necessary;
-- give exact commands;
-- do not make them manually edit database internals unless unavoidable;
-- never ask them to paste secrets;
-- do not assume Docker is installed.
-
-### `.env`
-
-The current `config.py` requires at least:
+Revision:
 
 ```text
-BOT_TOKEN
-DATABASE_URL
+0003_source_independent_genres
 ```
 
-The user currently has `.env.example` but has not yet completed a local runnable database environment.
+Revises:
 
-Do not ask the user to send the real bot token.
+```text
+0002_media_sources
+```
+
+Purpose:
+
+- removes `Genre.mal_id`;
+- makes genre name unique;
+- consolidates duplicate genre rows by name;
+- preserves `MediaGenre` links while consolidating duplicates.
+
+## Migration warning
+
+The migrations have been authored but have **not yet been confirmed against a real PostgreSQL instance during the current development session**.
+
+Before declaring the DB layer production-ready, run:
+
+```bat
+alembic upgrade head
+alembic current
+```
+
+against a valid local PostgreSQL database.
+
+Do not manually drop/recreate the database just to make the migration pass.
+
+Do not ask the user to expose their real `BOT_TOKEN` or database password in chat.
 
 ---
 
-# 8. CURRENT PROJECT STRUCTURE
+# 7. DATABASE REPOSITORY — CURRENT
 
-At the time of handoff:
+File:
 
 ```text
-anime_tracker_bot/
-│   .env.example
-│   .gitignore
-│   alembic.ini
-│   config.py
-│   docker-compose.yml
-│   main.py
-│   README.md
-│   requirements.txt
-│
-├───alembic
-│   │   env.py
-│   │   script.py.mako
-│   │   __init__.py
-│   │
-│   └───versions
-│           0001_initial.py
-│
-├───api
-│       __init__.py
-│
-├───bot
-│       handlers.py
-│       keyboards.py
-│       library.py
-│       profile.py
-│       __init__.py
-│
-├───database
-│       base.py
-│       models.py
-│       repository.py
-│       session.py
-│       __init__.py
-│
-└───providers
-        aggregator.py
-        base.py
-        jikan.py
-        mangalib.py
-        shikimori.py
-        __init__.py
+database/repository.py
 ```
 
-This structure is intentionally simple for now.
+The repository is now source-independent at the core level.
 
-Do not split the project into dozens of layers just for theoretical architecture.
+Important functions include:
+
+```python
+get_or_create_user(...)
+get_media(...)
+get_media_by_source(...)
+save_media(...)
+add_to_library(...)
+get_library(...)
+get_library_entry(...)
+update_status(...)
+update_score(...)
+remove_from_library(...)
+get_user_statistics(...)
+```
+
+## `get_media`
+
+Looks up by internal:
+
+```text
+Media.id
+```
+
+and eager-loads:
+
+```text
+Media.sources
+Media.genres
+```
+
+## `get_media_by_source`
+
+Looks up by:
+
+```text
+source
+source_id
+```
+
+This is the correct way to resolve a provider identity.
+
+## `save_media`
+
+Current intended behavior:
+
+1. look for an existing media by `provider/provider_id`;
+2. if not found, look through `source_ids`;
+3. create canonical `Media` if necessary;
+4. update available metadata;
+5. create missing `MediaSource` records;
+6. create/reuse genres by name;
+7. commit.
+
+This is the main persistence bridge from aggregator results into the canonical database model.
+
+## Important remaining repository concern
+
+`save_media()` is currently good enough for the current flow but should be reviewed for race conditions if multiple users select the same new external title concurrently. The DB unique constraint protects `(source, source_id)`, but application-level handling of an `IntegrityError`/retry may eventually be needed.
+
+Do not add complicated locking until a real concurrency problem is observed.
 
 ---
 
-# 9. CURRENT BOT UI
+# 8. BOT HANDLERS — CURRENT
 
-Current main menu concepts include:
+File:
+
+```text
+bot/handlers.py
+```
+
+The current handler flow uses:
+
+```python
+from providers.aggregator import MediaAggregator
+```
+
+Search flow:
+
+```text
+search button
+    ↓
+select anime/manga
+    ↓
+enter query
+    ↓
+MediaAggregator.search()
+    ↓
+save results through repository
+    ↓
+assign internal media_id
+    ↓
+show result buttons
+```
+
+Result callbacks now use canonical internal IDs.
+
+## Current media detail flow
+
+When a user opens a media result or library entry:
+
+```text
+internal media_id
+    ↓
+get_media()
+    ↓
+Media + MediaSource(s)
+    ↓
+MediaAggregator.get_media()
+    ↓
+provider details
+    ↓
+merge with canonical data
+    ↓
+Telegram media card
+```
+
+The aggregator's detail loader tries available providers based on the stored source records.
+
+Current provider preference in `get_media()` is approximately:
+
+```text
+Shikimori
+MAL/Jikan
+MangaLib
+```
+
+with additional metadata merged when the first provider does not contain a field.
+
+Provider errors are caught so one unavailable provider does not necessarily destroy the card.
+
+## Current media card
+
+The card can display:
+
+- title;
+- original title;
+- year;
+- external score;
+- episode count for anime;
+- chapter/volume counts for manga;
+- genres;
+- description;
+- image when available.
+
+## Important limitation
+
+The current detail merge is not yet a full metadata synchronization system.
+
+It loads details on demand but does not yet implement a robust cache/refresh policy.
+
+That should be addressed later, after end-to-end behavior is verified.
+
+---
+
+# 9. BOT KEYBOARDS — CURRENT
+
+File:
+
+```text
+bot/keyboards.py
+```
+
+Main menu currently contains:
 
 ```text
 🎬 Аниме
@@ -729,12 +927,71 @@ Current main menu concepts include:
 📊 Статистика
 ```
 
-The library has sections:
+Search type:
+
+```text
+🎬 Аниме
+📚 Манга
+```
+
+Media result buttons use:
+
+```text
+media:<media_id>
+```
+
+Library actions use internal `media_id`.
+
+Rating uses:
+
+```text
+rating:<media_id>:<score>
+```
+
+The status set remains:
+
+```text
+planning
+watching
+completed
+paused
+dropped
+```
+
+## Important architectural rule
+
+Do not reintroduce callbacks containing:
+
+```text
+mal_id
+```
+
+The canonical callback identity is now the internal `Media.id`.
+
+---
+
+# 10. LIBRARY — CURRENT
+
+File:
+
+```text
+bot/library.py
+```
+
+Library is source-independent because `UserMedia` references:
+
+```text
+Media.id
+```
+
+not a provider ID.
+
+Current library sections:
 
 - anime;
 - manga.
 
-Status filters:
+Current filters:
 
 - all;
 - completed;
@@ -743,361 +1000,623 @@ Status filters:
 - paused;
 - dropped.
 
-Library entries have controls for:
+Pagination is present.
+
+Library entries support:
 
 - changing status;
 - rating 1–10;
 - removing from library;
-- returning to library.
+- returning to the library.
 
-Search result UI has pagination support.
-
-### Important current limitation
-
-The existing `bot/handlers.py` still contains direct Jikan/MAL-specific behavior in places.
-
-In particular, current handler logic uses:
-
-```python
-from providers.jikan import JikanClient
-```
-
-and helper/callback flows based on `mal_id`.
-
-Therefore the aggregator and `MediaSource` architecture is **not yet fully wired into all handlers**.
-
-This is one of the next major implementation tasks.
+The library should not care whether a title originated from MAL, Shikimori, MangaLib or a future provider.
 
 ---
 
-# 10. CURRENT PROFILE / STATISTICS
+# 11. PROFILE / STATISTICS
 
-A profile/statistics feature was started.
+File:
 
-The intended information includes:
+```text
+bot/profile.py
+```
 
-- user identity;
+A basic profile/statistics foundation exists.
+
+The repository has statistics aggregation for:
+
 - total library size;
-- anime count;
-- manga count;
-- average user rating;
-- distribution by status.
+- media type/status counts;
+- average user score.
 
-This is intentionally simple at first.
+This is intentionally basic.
 
-Future profile/statistics ideas can include:
+Do not overbuild statistics until search/library/media identity is stable.
+
+Future possibilities:
 
 - completed count;
-- time watched/read when reliable data exists;
 - genre distribution;
-- yearly activity;
-- favorite genres;
 - rating distribution;
-- progress charts.
-
-Do not overbuild statistics before the core library/search architecture is stable.
+- activity over time;
+- favorite genres;
+- watched/read totals when reliable metadata exists.
 
 ---
 
-# 11. IMPORTANT CURRENT INCONSISTENCIES / TECHNICAL DEBT
-
-These are important and should be addressed systematically.
-
-## CRITICAL — handlers are still MAL/Jikan-centric
-
-Some callback data and lookup functions still use:
+# 12. PROJECT STRUCTURE — VERIFIED CURRENT REPOSITORY
 
 ```text
-mal_id
+anime_tracker_bot/
+│
+├── .env.example
+├── .gitignore
+├── PROJECT_STATE.md
+├── README.md
+├── alembic.ini
+├── config.py
+├── docker-compose.yml
+├── main.py
+├── requirements.txt
+│
+├── alembic/
+│   ├── __init__.py
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       ├── 0001_initial.py
+│       ├── 0002_media_sources.py
+│       └── 0003_source_independent_genres.py
+│
+├── api/
+│   └── __init__.py
+│
+├── bot/
+│   ├── __init__.py
+│   ├── handlers.py
+│   ├── keyboards.py
+│   ├── library.py
+│   └── profile.py
+│
+├── database/
+│   ├── __init__.py
+│   ├── base.py
+│   ├── models.py
+│   ├── repository.py
+│   └── session.py
+│
+└── providers/
+    ├── __init__.py
+    ├── aggregator.py
+    ├── base.py
+    ├── jikan.py
+    ├── mangalib.py
+    └── shikimori.py
 ```
 
-and direct `JikanClient` loading.
+The structure is intentionally small.
 
-The desired architecture is:
+Do not split it into dozens of services/layers without a concrete need.
+
+---
+
+# 13. APPLICATION ENTRYPOINT
+
+File:
 
 ```text
-provider-specific search result
-        ↓
-canonical Media
-        ↓
-MediaSource IDs
-        ↓
-UserMedia references Media
+main.py
 ```
 
-Handlers should eventually operate on internal `media_id` or a safe source-independent identifier, not assume every title has a MAL ID.
+Current stack:
 
-## CRITICAL — migration is not yet complete
+- Python;
+- aiogram;
+- SQLAlchemy async;
+- Alembic;
+- PostgreSQL;
+- httpx providers.
 
-`MediaSource` exists in the model, but the database migration history currently only has `0001_initial`.
-
-A proper Alembic migration must be created for the new schema if the initial migration does not already contain the current tables.
-
-Before writing a migration:
-
-1. inspect `0001_initial.py`;
-2. compare it to `database/models.py`;
-3. determine whether the existing migration already contains `MediaSource`;
-4. preserve existing data if any;
-5. only then create the next migration.
-
-Do NOT blindly drop/recreate the database.
-
-## HIGH — repository layer needs to match current model
-
-`database/repository.py` must be checked carefully against the current `Media` model.
-
-Especially verify:
-
-- old `Media.mal_id` references;
-- `MediaSource` lookup;
-- save/upsert behavior;
-- library lookup behavior;
-- genre handling;
-- compatibility with non-MAL titles.
-
-Do not assume a previously drafted repository implementation is correct until it has been inspected against the actual repository.
-
-## HIGH — MangaLib details are incomplete
-
-`MangaLibClient.get_media()` currently returns `None`.
-
-This means MangaLib can currently participate in search but cannot yet be treated as a complete source for detailed media cards.
-
-## HIGH — source-independent callback IDs
-
-Current callback patterns include values such as:
+The dispatcher currently includes:
 
 ```text
-media:<type>:<mal_id>
-library_media:<type>:<mal_id>
-add:<type>:<mal_id>
-status:<type>:<mal_id>:<status>
+bot.handlers.router
+bot.profile.router
 ```
 
-These should eventually be changed to internal media IDs or another stable canonical identifier.
+and starts aiogram polling.
 
-Otherwise titles that exist only on MangaLib/Shikimori cannot be handled correctly.
+---
 
-## MEDIUM — media type vocabulary
+# 14. CONFIG / LOCAL ENVIRONMENT
 
-Current bot UI primarily distinguishes:
+File:
+
+```text
+config.py
+```
+
+Required environment configuration includes:
+
+```text
+BOT_TOKEN
+DATABASE_URL
+```
+
+The user must keep real secrets local.
+
+Do not ask them to paste:
+
+- bot token;
+- database password;
+- other secrets.
+
+The repository contains `.env.example`.
+
+## User's known local environment
+
+Windows machine.
+
+Example project directory:
+
+```text
+C:\Users\nik_s\OneDrive\Рабочий стол\ALL\it\projects\python\tg\anime_tracker_bot
+```
+
+Known Python version from the previous project state:
+
+```text
+Python 3.12.10
+```
+
+Known pip version:
+
+```text
+pip 26.1.2
+```
+
+Docker is not installed.
+
+Therefore do not assume Docker is available just because `docker-compose.yml` exists.
+
+The user is comfortable with simple CMD/Git commands but is not a database administrator.
+
+When database setup is needed, give exact commands and short explanations.
+
+---
+
+# 15. README STATUS
+
+`README.md` exists but is still relatively minimal and should eventually be updated to reflect the current architecture.
+
+It should eventually document:
+
+- multi-source architecture;
+- Jikan/MAL;
+- Shikimori;
+- MangaLib;
+- canonical `Media` + `MediaSource` model;
+- migrations;
+- setup;
+- current bot features;
+- local development workflow.
+
+Do not repeatedly rewrite README for every small code change. Update it after the current architecture and local setup have stabilized.
+
+---
+
+# 16. COMPLETED WORK — RECENT HISTORY
+
+The following work was completed during the current architectural transition.
+
+## Canonical source model
+
+Implemented:
+
+```text
+MediaSource
+```
+
+and moved external identity away from:
+
+```text
+Media.mal_id
+```
+
+toward:
+
+```text
+MediaSource(source, source_id)
+```
+
+## Genre decoupling
+
+Removed MAL identity from `Genre`.
+
+Genres are now keyed by their normalized stored name rather than MAL ID.
+
+## Genre migration safety
+
+The migration was corrected so consolidating duplicate genre names does not accidentally destroy valid `MediaGenre` relationships.
+
+## MangaLib detail loading
+
+Implemented MangaLib detail fetching.
+
+## MangaLib URL handling
+
+Corrected MangaLib media URL fallback.
+
+## Cross-source ID preservation
+
+Aggregator merge now preserves `source_ids` when provider results are merged.
+
+## Year-aware title deduplication
+
+Title deduplication now includes the work year in its secondary key to reduce accidental merging of same-title works from different years.
+
+## MangaLib/Shikimori ID correction
+
+A MangaLib `shiki_id` is now mapped to:
+
+```text
+source_ids["shikimori"]
+```
+
+instead of being incorrectly treated as a MAL ID.
+
+## Media details
+
+Media cards now attempt to load provider details through `MediaAggregator.get_media()`.
+
+## Handler canonical IDs
+
+Handlers and keyboards now use internal `Media.id` for callbacks and library operations.
+
+---
+
+# 17. RECENT COMMITS
+
+Recent verified commits in `main` include:
+
+```text
+7a11adc5  fix: map MangaLib Shikimori IDs correctly
+6d144ccc  fix: make title deduplication year aware
+4bb20883  fix: preserve cross-source IDs during result merge
+3ba7e92a  fix: correct MangaLib media URL fallback
+03ebe7f2  feat: load MangaLib media details
+066c2179  fix: preserve media genre links during migration
+db0ded2a  feat: remove MAL dependency from genres
+86457e22  fix: make genre storage source independent
+4e090921  refactor: remove MAL identity from genres
+53b25e51  feat: load provider details for media cards
+```
+
+The latest verified commit is:
+
+```text
+7a11adc5e7078f55955c2a83500c3b56cef98394
+```
+
+---
+
+# 18. CURRENT KNOWN PROBLEMS / TECHNICAL DEBT
+
+## CRITICAL — real DB migration has not been verified locally
+
+The migration chain now exists, but it must be tested against PostgreSQL.
+
+Required verification:
+
+```bat
+alembic upgrade head
+alembic current
+```
+
+Expected head:
+
+```text
+0003_source_independent_genres
+```
+
+If migration fails, inspect the exact database error before changing migration logic.
+
+Do not blindly delete the database.
+
+## HIGH — provider details are not fully standardized
+
+Different providers expose different metadata.
+
+The current aggregator merges common fields such as:
+
+```text
+title
+title_english
+title_original
+description
+image_url
+score
+year
+episodes
+chapters
+volumes
+url
+genres
+title_variants
+```
+
+A more formal normalized provider DTO/schema may eventually be useful, but do not add unnecessary abstractions until actual provider differences justify them.
+
+## HIGH — cross-provider entity resolution is heuristic
+
+Current matching is useful but not a perfect identity system.
+
+Potential future improvement:
+
+```text
+provider cross-links
+      ↓
+strong identity
+      ↓
+title + type + year
+      ↓
+conservative fuzzy matching
+```
+
+Avoid aggressive fuzzy matching.
+
+## HIGH — concurrency race in `save_media()` is possible
+
+Two users can theoretically save the same provider record at the same time.
+
+The DB uniqueness constraint is the main protection.
+
+If this produces real `IntegrityError`s under testing, add a focused retry/upsert strategy.
+
+Do not overengineer before observing the problem.
+
+## MEDIUM — detail caching
+
+Details are currently fetched on demand.
+
+Future behavior should likely be:
+
+```text
+search
+  ↓
+save canonical media
+  ↓
+open card
+  ↓
+use cached data when fresh
+  ↓
+refresh provider data when stale/on demand
+```
+
+No full catalog caching.
+
+## MEDIUM — only anime/manga are currently exposed by UI
+
+The product vision includes:
+
+```text
+anime
+manga
+manhwa
+manhua
+novel/ranobe
+```
+
+but current UI is primarily:
 
 ```text
 anime
 manga
 ```
 
-The product vision includes:
+Future support should preferably use a flexible media type taxonomy, not separate tables for every format.
 
-- anime;
-- manga;
-- manhwa;
-- manhua;
-- ranobe/novel;
-- potentially other types.
+## MEDIUM — Remanga is not implemented
 
-Do not blindly make each of these a separate database table. Prefer a flexible `Media.type` or normalized type taxonomy.
-
-## MEDIUM — genre IDs are MAL-specific
-
-`Genre.mal_id` assumes MAL is the source of genre identity.
-
-This is acceptable temporarily but is not ideal for a multi-source architecture.
-
-## MEDIUM — external data caching strategy
-
-Eventually the bot should avoid repeatedly downloading the same details from providers for every click.
-
-A sensible strategy is:
-
-- search externally;
-- save canonical media when user selects/adds it;
-- refresh metadata periodically or on demand;
-- keep source IDs in `MediaSource`.
-
-Do not cache the entire external catalogs.
+Add it only after current three-provider flow is stable.
 
 ---
 
-# 12. TARGET ARCHITECTURE
+# 19. NEXT DEVELOPMENT ORDER
 
-The desired architecture is approximately:
+This is the current recommended order.
 
-```text
-Telegram / Web App
-        │
-        ▼
-      Handlers / API
-        │
-        ▼
-   Application services
-        │
-        ├───────────────┐
-        ▼               ▼
-MediaAggregator    Library service
-        │               │
-        ├── Jikan       ▼
-        ├── Shikimori Database
-        ├── MangaLib
-        └── Remanga
-```
+## STEP 1 — Verify migrations
 
-The database should conceptually contain:
+First priority:
 
 ```text
-User
-  │
-  └── UserMedia ─────── Media
-                           │
-                           ├── MediaSource (MAL)
-                           ├── MediaSource (Shikimori)
-                           ├── MediaSource (MangaLib)
-                           └── MediaSource (Remanga)
+0001 → 0002 → 0003
 ```
 
-This gives us:
+against a real PostgreSQL database.
 
-- one user library entry per canonical media entity;
-- multiple external IDs per entity;
-- provider independence;
-- easier future recommendations;
-- easier provider replacement/addition;
-- fewer duplicate titles.
+Confirm:
+
+- `media_sources` exists;
+- `media.mal_id` is gone after migration;
+- old MAL IDs were copied to `media_sources`;
+- `genres.mal_id` is gone;
+- genre links survive;
+- unique constraints exist.
+
+## STEP 2 — Static consistency check
+
+Search the repository for remaining old MAL-centric references such as:
+
+```text
+Media.mal_id
+Genre.mal_id
+media.mal_id
+mal_id` used as canonical identity
+callbacks containing mal_id
+```
+
+Provider-level `mal_id` is allowed when it represents an actual MAL cross-source ID.
+
+The problem is using MAL ID as the internal identity.
+
+## STEP 3 — End-to-end bot test
+
+Test this exact path:
+
+```text
+/start
+ ↓
+Search
+ ↓
+Anime
+ ↓
+query
+ ↓
+results
+ ↓
+open result
+ ↓
+card
+ ↓
+add to library
+ ↓
+status
+ ↓
+library
+ ↓
+change status
+ ↓
+rate
+ ↓
+remove
+```
+
+Then repeat with manga.
+
+## STEP 4 — Cross-source test
+
+Use a title known to exist in multiple providers.
+
+Verify:
+
+- results are merged when identity is strong;
+- `MediaSource` contains multiple IDs;
+- only one canonical `Media` is created;
+- one library entry is created;
+- opening the card can use the stored provider IDs.
+
+## STEP 5 — Improve search
+
+After basic correctness is confirmed:
+
+- improve alternate-name matching;
+- improve Russian query handling;
+- inspect false merges;
+- inspect false duplicates;
+- keep matching conservative.
+
+## STEP 6 — Improve media cards
+
+Then add, where providers support it:
+
+- authors;
+- studios;
+- source links;
+- related works;
+- better status information;
+- richer metadata.
+
+## STEP 7 — Add Remanga
+
+Only after the current architecture is stable.
+
+## STEP 8 — Update README
+
+Once behavior and setup are confirmed.
+
+## STEP 9 — Web App
+
+Only after backend/media/library architecture is stable.
+
+## STEP 10 — Recommendations
+
+Only after enough normalized user/media data exists.
 
 ---
 
-# 13. FUTURE WEB APP
+# 20. DO NOT DO YET
 
-The user thinks a Telegram Web App would be cool.
+Do not currently:
 
-The intended product can eventually provide:
-
-- dark UI;
-- home dashboard;
-- library tabs;
-- search;
-- title cards;
-- filters;
-- profile;
-- statistics;
-- recommendations;
-- sorting;
-- maybe infinite scrolling.
-
-The Telegram bot itself should remain useful without the Web App.
-
-The backend should therefore be designed so both Telegram handlers and the Web App can use the same application/data layer.
-
-The repository already has:
-
-```text
-api/
-```
-
-but it is currently essentially empty.
-
-Do not build the full Web App before the canonical media/search/library architecture is stable.
+- preload huge catalogs;
+- build ML recommendations;
+- build RPG/gamification systems;
+- add complicated progress mechanics;
+- split anime/manga/manhwa/manhua into separate database models without need;
+- build microservices;
+- aggressively fuzzy-merge titles;
+- make MAL the canonical identity again;
+- build the Web App before the core backend is stable;
+- require Docker for every local development task;
+- ask the user to manually edit PostgreSQL internals unless absolutely necessary.
 
 ---
 
-# 14. FUTURE RECOMMENDATION SYSTEM
+# 21. CODING / EDITING RULES
 
-This is planned for a later phase.
+The user explicitly wants the assistant to behave as a technical editor.
 
-Possible inputs:
+## Rule 1 — find the concrete problem first
 
-- user ratings 1–10;
-- completed titles;
-- watching/reading titles;
-- dropped titles;
-- planned titles;
-- genres;
-- studios/authors;
-- related/franchise data;
-- similarity between titles;
-- potentially community behavior after enough users exist.
+Explain briefly what is wrong and why.
 
-A likely evolution:
+## Rule 2 — preserve logic
 
-### Phase 1
-Content-based recommendations:
+Do not rewrite working architecture merely for style.
 
-```text
-user ratings + genres + metadata
-```
+## Rule 3 — minimal changes
 
-### Phase 2
-Similarity between media:
+Make the smallest reasonable change that fixes the issue.
 
-```text
-Media A ↔ Media B
-```
+## Rule 4 — no unnecessary dependencies
 
-### Phase 3
-Collaborative recommendations:
+Do not add libraries unless they are actually required.
 
-```text
-users with similar tastes
-        ↓
-what they liked
-        ↓
-recommendations
-```
+## Rule 5 — preserve formatting
 
-Do not implement machine learning prematurely.
+Use 4-space Python indentation and preserve surrounding formatting where practical.
 
-The normalized `Media` + `UserMedia` data model is the important prerequisite.
+## Rule 6 — no `...` placeholders
 
----
-
-# 15. DEVELOPMENT RULES FOR THIS PROJECT
-
-These rules reflect the user's explicit preferences when editing code.
-
-## 15.1 Preserve existing logic
-
-Act as a technical editor, not as someone rewriting the project for fun.
-
-When fixing a bug:
-
-1. identify the concrete problem;
-2. explain it briefly;
-3. make the smallest necessary change;
-4. preserve architecture unless there is a real reason to change it;
-5. preserve variable/function names when practical;
-6. preserve function order;
-7. preserve formatting/indentation;
-8. do not add unnecessary libraries;
-9. do not add speculative checks everywhere.
-
-## 15.2 Never use `...` as a code replacement
-
-When giving code to the user, never write:
+Never give the user code like:
 
 ```python
 ...
 ```
 
-as a placeholder for omitted code.
+as a substitute for omitted code.
 
-If a function changes, provide the **complete function**.
+If a function changes, provide the complete function.
 
-## 15.3 Prefer exact replacement fragments
+## Rule 7 — prefer exact replacements
 
-When working with the user locally, prefer:
+When explaining local changes, prefer:
 
 ```text
 БЫЛО → СТАЛО
 ```
 
-or provide the complete file only when the whole file genuinely needs replacement.
+or provide a complete ready-to-replace function/file when appropriate.
 
-Do not make the user manually reconstruct a 2500-line file for a two-function fix.
+## Rule 8 — do not rewrite huge files unnecessarily
 
-## 15.4 If multiple problems exist
+If one or two functions need changes, do not make the user replace a 2500-line file.
 
-List them and mark important ones:
+## Rule 9 — list multiple problems by priority
+
+Use:
 
 ```text
 КРИТИЧНО
@@ -1105,58 +1624,60 @@ List them and mark important ones:
 СРЕДНИЙ
 ```
 
-## 15.5 Do not ask unnecessary questions
+## Rule 10 — proceed without unnecessary confirmation
 
-The user explicitly said:
+The user explicitly allows the assistant to make reasonable development decisions without asking every time.
 
-> можешь делать не спрашивая меня
+If the user says:
 
-Therefore, if a reasonable implementation decision is possible, make it yourself.
+```text
+давай
+делай
+продолжай
+```
 
-Ask only when a decision genuinely changes the product direction or when required information is unavailable.
+continue with the next logical development step.
+
+Ask only when the missing information genuinely changes the product or makes safe implementation impossible.
 
 ---
 
-# 16. GIT WORKFLOW
+# 22. GIT WORKFLOW
 
-The user is comfortable running simple Git commands but is not an expert.
+Repository:
 
-Repository is:
+```text
+Kerdor/anime_tracker_bot
+```
 
-`Kerdor/anime_tracker_bot`
+Branch:
 
-The user expects the assistant to make changes to GitHub when possible.
+```text
+main
+```
 
-When making changes through GitHub tools:
+The user expects changes to be committed to GitHub when the assistant has the required tool access.
 
-- inspect the current file first;
-- preserve the latest version;
-- make focused commits;
-- use meaningful commit messages;
-- do not claim a change was made if the write failed;
-- do not silently overwrite unknown newer changes.
+When changing a file:
 
-The user may then run:
+1. inspect current version;
+2. preserve newer changes;
+3. make focused changes;
+4. use a meaningful commit message;
+5. verify the write succeeded;
+6. report the commit.
+
+The user can then update their local clone with:
 
 ```bat
 git pull
 ```
 
-locally.
-
-If there are local changes, explain the conflict clearly instead of telling the user to delete things blindly.
+If local changes conflict, explain the exact conflict instead of telling the user to delete changes blindly.
 
 ---
 
-# 17. LOCAL ENVIRONMENT NOTES
-
-Windows CMD is being used.
-
-Example local project directory:
-
-```text
-C:\Users\nik_s\OneDrive\Рабочий стол\ALL\it\projects\python\tg\anime_tracker_bot
-```
+# 23. LOCAL COMMANDS
 
 Useful commands:
 
@@ -1167,252 +1688,136 @@ git log --oneline -10
 tree /F
 python --version
 python -m pip --version
+alembic current
+alembic upgrade head
 ```
 
-The user accidentally typed:
+The user previously confused:
 
-```bat
+```text
 free /F
 ```
 
-when intending:
+with:
 
-```bat
+```text
 tree /F
 ```
 
-This is irrelevant to the project and should not be treated as a project issue.
-
-Docker is unavailable locally at present.
+This is irrelevant to the project.
 
 ---
 
-# 18. README STATUS
+# 24. WEB APP PLAN
 
-Current README describes the project as:
+A Telegram Web App is planned as a later stage.
 
-> Telegram bot for tracking anime, manga, manhwa, manhua and novels.
+Potential UI:
 
-Current stack documented:
+- dark theme;
+- dashboard;
+- library tabs;
+- search;
+- filters;
+- title pages;
+- profile;
+- statistics;
+- recommendations;
+- infinite scrolling where useful.
 
-- Python
-- aiogram
-- FastAPI
-- PostgreSQL
-- SQLAlchemy
-- Jikan API / MyAnimeList data
+The existing `api/` directory is currently only a placeholder.
 
-The README currently says the project is at the initial foundation stage, but the actual repository has already progressed beyond that description.
+Do not build the complete Web App yet.
 
-The README should eventually be updated to reflect:
-
-- multi-source architecture;
-- Shikimori/MangaLib;
-- database model;
-- setup without assuming Docker;
-- bot commands/features;
-- development workflow.
-
-Do this after the architecture stabilizes rather than repeatedly rewriting it during every small change.
+The backend/data model should first become stable enough that both Telegram handlers and future Web App endpoints can reuse the same application logic.
 
 ---
 
-# 19. IMPLEMENTATION ROADMAP
+# 25. RECOMMENDATION PLAN
 
-## Phase 0 — stabilize current foundation
+Later recommendation phases:
 
-- [x] repository created;
-- [x] Python/aiogram foundation;
-- [x] SQLAlchemy models started;
-- [x] Alembic configured;
-- [x] Jikan provider;
-- [x] Shikimori provider started;
-- [x] MangaLib provider started;
-- [x] MediaAggregator started;
-- [x] MediaSource model started;
-- [x] library UI;
-- [x] status system;
-- [x] rating 1–10;
-- [x] profile/statistics foundation;
-- [x] search pagination foundation.
-
-## Phase 1 — canonical media architecture
-
-**CURRENT PRIORITY**
-
-- [ ] inspect `alembic/versions/0001_initial.py` against `database/models.py`;
-- [ ] create required migration(s) safely;
-- [ ] ensure existing MAL data can be migrated to `MediaSource`;
-- [ ] remove assumptions that every `Media` has a MAL ID;
-- [ ] update repository functions;
-- [ ] update handlers to use internal media IDs/source IDs;
-- [ ] make `save_media()` source-aware;
-- [ ] make library lookups source-independent;
-- [ ] ensure duplicate `(source, source_id)` cannot be created;
-- [ ] test add/status/rating/remove flows.
-
-## Phase 2 — real multi-source search
-
-- [ ] integrate `MediaAggregator` into handlers;
-- [ ] remove direct Jikan-only search path;
-- [ ] show unified results;
-- [ ] show Russian title when available;
-- [ ] collect alternate names;
-- [ ] improve entity resolution;
-- [ ] implement MangaLib detail fetching;
-- [ ] add Remanga provider;
-- [ ] verify provider failures do not break search;
-- [ ] add reasonable provider timeouts/retry behavior without overengineering.
-
-## Phase 3 — media details
-
-- [ ] canonical media card;
-- [ ] source links;
-- [ ] genres;
-- [ ] year;
-- [ ] score;
-- [ ] episode/chapter/volume information;
-- [ ] authors/studios;
-- [ ] related titles;
-- [ ] refresh metadata.
-
-## Phase 4 — library quality
-
-- [ ] source-independent library entries;
-- [ ] better filtering;
-- [ ] sorting;
-- [ ] pagination/infinite scroll where appropriate;
-- [ ] better empty states;
-- [ ] duplicate protection;
-- [ ] statistics improvements.
-
-## Phase 5 — Web App
-
-- [ ] FastAPI endpoints;
-- [ ] Telegram Web App authentication;
-- [ ] dark UI;
-- [ ] library dashboard;
-- [ ] search;
-- [ ] title pages;
-- [ ] filters;
-- [ ] profile/statistics.
-
-## Phase 6 — recommendations
-
-- [ ] content-based recommendations;
-- [ ] title similarity;
-- [ ] personalized ranking;
-- [ ] later collaborative filtering if enough data exists.
-
----
-
-# 20. THINGS WE SHOULD NOT DO YET
-
-Do NOT currently:
-
-- preload 100k+ anime/manga records;
-- build ML recommendations;
-- build a complex achievement/RPG system;
-- add unnecessary gamification;
-- split every media type into separate tables;
-- create dozens of microservices;
-- require Docker just to test a simple bot if a simpler local DB workflow can be provided;
-- aggressively fuzzy-merge titles;
-- make MAL the permanent canonical identity;
-- make the Web App before the backend/media model is stable.
-
-The user wants a powerful product eventually, but the foundation should remain understandable and maintainable.
-
----
-
-# 21. USER'S ORIGINAL PRODUCT PREFERENCES
-
-These are product decisions from the planning discussion:
-
-- Main language initially Russian.
-- Dark visual design.
-- Sections rather than one giant undifferentiated list.
-- Statuses are enough initially.
-- Rating 1–10.
-- External catalogs are preferred over maintaining a manually curated giant database.
-- MAL is useful, but Russian-language sources such as Shikimori/MangaLib/Remanga are important.
-- The bot should eventually support both Telegram UI and Web App.
-- Initial scale: hundreds of users, architecture should be able to grow to thousands.
-- Recommendations are wanted later, after the core tracker works.
-
----
-
-# 22. NEW-CHAT HANDOFF INSTRUCTIONS
-
-If a new chat starts with this project, the assistant should:
-
-1. Read `PROJECT_STATE.md`.
-2. Open the current repository files before modifying anything.
-3. Compare the actual repository with this document because the repository may have advanced since this file was written.
-4. Treat the actual repository as authoritative for code state.
-5. Treat this document as authoritative for product decisions and historical context unless the user explicitly changes them.
-6. Do not ask the user to explain the entire project again.
-7. Do not assume a feature is complete just because a file exists.
-8. Check integration points before claiming a feature works.
-9. Preserve the user's coding preferences listed above.
-10. When changing code, explain the concrete problem briefly and make the smallest reasonable change.
-11. If the user says `давай`, `делай`, or similar in this project context, proceed with the next logical implementation step rather than asking unnecessary confirmation.
-12. Keep the user informed in short, practical Russian.
-
-### If the user asks "продолжай"
-
-The default next action should be to inspect the current repository and continue from the highest-priority unchecked item in the roadmap.
-
-### Current highest-priority implementation order
+### Phase 1 — content based
 
 ```text
-1. Inspect 0001_initial.py
-2. Reconcile DB migration with current models
-3. Fix repository/model mismatch
-4. Remove MAL-only assumptions from handlers
-5. Switch handlers to canonical Media IDs
-6. Integrate MediaAggregator into actual search
-7. Make source-aware media detail loading
-8. Complete MangaLib details
-9. Add Remanga
-10. Test end-to-end search → card → library → status → rating
+ratings
++ genres
++ metadata
+→ recommendations
+```
+
+### Phase 2 — media similarity
+
+```text
+Media A ↔ Media B
+```
+
+### Phase 3 — collaborative
+
+```text
+similar users
+→ titles they liked
+→ recommendations
+```
+
+Do not implement this before the library/media model has enough real data.
+
+---
+
+# 26. NEW CHAT INSTRUCTIONS
+
+When a new chat continues this project:
+
+1. Read `PROJECT_STATE.md` first.
+2. Use the current GitHub repository as the code source of truth.
+3. Do not assume the code exactly matches this document if newer commits exist.
+4. Check the current branch/commit and relevant files before editing.
+5. Do not ask the user to repeat project history already captured here.
+6. Preserve the product decisions in this document unless the user explicitly changes them.
+7. Do not assume a feature is complete merely because a provider/model/file exists.
+8. Verify integration points.
+9. Follow the user's coding/editing rules.
+10. If the user says `давай`, `делай` or `продолжай`, take the next logical implementation step.
+11. Keep explanations concise and practical in Russian.
+12. Do not claim real-world runtime success without actual testing.
+
+## Default next action
+
+If asked to continue without a specific task, do this:
+
+```text
+1. inspect current repository
+2. verify Alembic 0003 against models
+3. search for remaining MAL-only identity references
+4. fix concrete inconsistencies
+5. verify handlers/repository/provider integration
+6. then proceed to end-to-end testing
 ```
 
 ---
 
-# 23. IMPORTANT CORRECTION FROM PREVIOUS CHAT
+# 27. IMPORTANT PROJECT SEPARATION
 
-Earlier in development, there was confusion between the user's other repository `InsaneBot-discord` and this project.
-
-**Do not use `InsaneBot-discord/PROJECT_STATE.md` as the state file for this project.**
-
-This file belongs specifically to:
+This project is:
 
 ```text
 Kerdor/anime_tracker_bot
 ```
 
-The `InsaneBot-discord` project is unrelated to the architecture described here.
+Do not confuse it with other projects discussed by the user, especially:
+
+```text
+InsaneBot-discord
+nightmare_spire_bot
+solo_rank_bot
+```
+
+Those projects have different architectures and state files.
+
+This `PROJECT_STATE.md` belongs **only** to `anime_tracker_bot`.
 
 ---
 
-# 24. FINAL PRINCIPLE
+# 28. CURRENT ONE-LINE SUMMARY
 
-The core idea of the project is:
-
-> **Build a high-quality personal media tracker on top of several external catalogs, while keeping our own database small, canonical, user-centric and source-independent.**
-
-The external services provide catalog knowledge.
-
-Our application provides:
-
-- identity normalization;
-- search aggregation;
-- user library;
-- statuses;
-- ratings;
-- statistics;
-- future recommendations;
-- future Web App experience.
-
-That separation is the central architectural decision and should be preserved as the project grows.
+> **Anime Tracker Bot is currently in the middle of a successful migration from a MAL-centric tracker to a canonical multi-source architecture (`Media → MediaSource → UserMedia`); migrations 0001–0003, source-aware repository logic, aggregator search, MangaLib details and canonical Telegram callbacks are in place, and the next priority is real PostgreSQL migration verification plus a full end-to-end search/card/library test before adding more providers or features.**
