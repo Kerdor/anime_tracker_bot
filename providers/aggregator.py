@@ -49,6 +49,9 @@ class MediaAggregator:
         mal_id = item.get("mal_id")
         if mal_id:
             keys.add(("mal", str(mal_id)))
+        for source, source_id in item.get("source_ids", {}).items():
+            if source and source_id:
+                keys.add((source, str(source_id)))
         return keys
 
     @classmethod
@@ -60,7 +63,7 @@ class MediaAggregator:
             item = dict(item)
             item["search_score"] = cls._score_result(query, item)
             item["providers"] = [item.get("provider")] if item.get("provider") else []
-            item["source_ids"] = {}
+            item["source_ids"] = dict(item.get("source_ids", {}))
             if item.get("provider") and item.get("provider_id"):
                 item["source_ids"][item["provider"]] = str(item["provider_id"])
             if item.get("mal_id"):
@@ -102,12 +105,21 @@ class MediaAggregator:
         final: list[dict[str, Any]] = []
         for item in merged:
             key = (item.get("type", ""), cls.normalize_title(item.get("title", "")))
-            if key not in title_map:
-                title_map[key] = len(final)
+            matched_index = title_map.get(key)
+
+            if matched_index is not None:
+                current = final[matched_index]
+                current_year = current.get("year")
+                item_year = item.get("year")
+                if current_year and item_year and abs(current_year - item_year) > 1:
+                    matched_index = None
+
+            if matched_index is None:
+                title_map[(key[0], f"{key[1]}:{item.get('year')}") if item.get("year") else key] = len(final)
                 final.append(item)
                 continue
 
-            current = final[title_map[key]]
+            current = final[matched_index]
             current["title_variants"] = list(set(current.get("title_variants", [])) | set(item.get("title_variants", [])))
             current["providers"] = sorted(set(current.get("providers", [])) | set(item.get("providers", [])))
             current["source_ids"].update(item.get("source_ids", {}))
