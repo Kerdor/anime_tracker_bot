@@ -46,9 +46,6 @@ class MediaAggregator:
         provider_id = item.get("provider_id")
         if provider and provider_id:
             keys.add((provider, str(provider_id)))
-        mal_id = item.get("mal_id")
-        if mal_id:
-            keys.add(("mal", str(mal_id)))
         for source, source_id in item.get("source_ids", {}).items():
             if source and source_id:
                 keys.add((source, str(source_id)))
@@ -66,8 +63,6 @@ class MediaAggregator:
             item["source_ids"] = dict(item.get("source_ids", {}))
             if item.get("provider") and item.get("provider_id"):
                 item["source_ids"][item["provider"]] = str(item["provider_id"])
-            if item.get("mal_id"):
-                item["source_ids"]["mal"] = str(item["mal_id"])
 
             matched_index = None
             for key in cls._identity_keys(item):
@@ -87,12 +82,9 @@ class MediaAggregator:
                         current_titles.add(item[field])
                 current["title_variants"] = list(current_titles)
 
-                for field in ("image_url", "description", "title_english", "title_original", "url", "score", "year"):
-                    if item.get(field) and not current.get(field):
+                for field in ("image_url", "description", "title_english", "title_original", "url", "score", "year", "episodes", "chapters", "volumes"):
+                    if item.get(field) is not None and current.get(field) is None:
                         current[field] = item[field]
-
-                if item.get("mal_id") and not current.get("mal_id"):
-                    current["mal_id"] = item["mal_id"]
 
                 current["providers"] = sorted(set(current.get("providers", [])) | set(item.get("providers", [])))
                 current["source_ids"].update(item.get("source_ids", {}))
@@ -164,6 +156,7 @@ class MediaAggregator:
                         details[field] = item[field]
                 details["genres"] = list(dict.fromkeys((details.get("genres") or []) + (item.get("genres") or [])))
                 details["title_variants"] = list(dict.fromkeys((details.get("title_variants") or []) + (item.get("title_variants") or [])))
+                details["source_ids"] = {**details.get("source_ids", {}), **item.get("source_ids", {})}
 
         return details
 
