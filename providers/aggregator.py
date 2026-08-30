@@ -123,8 +123,9 @@ class MediaAggregator:
         )
 
     async def search(self, query: str, media_type: str) -> list[dict[str, Any]]:
+        providers = [provider for provider in self.providers if not (media_type == "anime" and provider.name == "mangalib")]
         results = await asyncio.gather(
-            *(provider.search(query, media_type) for provider in self.providers),
+            *(provider.search(query, media_type) for provider in providers),
             return_exceptions=True,
         )
         items: list[dict[str, Any]] = []
