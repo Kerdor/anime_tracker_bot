@@ -78,14 +78,12 @@ async def save_media(session: AsyncSession, data: dict) -> Media:
     if source and source_id:
         source_ids[source] = str(source_id)
 
-    existing_sources = {item.source: item for item in media.sources}
+    existing_sources = {(item.source, item.source_id): item for item in media.sources}
     for provider, external_id in source_ids.items():
         external_id = str(external_id)
-        existing = existing_sources.get(provider)
-        if existing is None:
+        key = (provider, external_id)
+        if key not in existing_sources:
             session.add(MediaSource(media_id=media.id, source=provider, source_id=external_id))
-        elif existing.source_id != external_id:
-            existing.source_id = external_id
 
     for name in data.get("genres", []):
         result = await session.execute(select(Genre).where(Genre.name == name))
