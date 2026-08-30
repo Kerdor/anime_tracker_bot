@@ -26,7 +26,7 @@ def search_results_keyboard(results: list[dict], page: int = 0, total_pages: int
     builder = InlineKeyboardBuilder()
     start = page * 10
     for index, item in enumerate(results[start:start + 10], start + 1):
-        builder.button(text=f"{index}. {item['title'][:45]}", callback_data=f"media:{item['type']}:{item['mal_id']}")
+        builder.button(text=f"{index}. {item['title'][:45]}", callback_data=f"media:{item['media_id']}")
 
     if total_pages > 1:
         media_type = results[0]["type"] if results else "anime"
@@ -41,16 +41,16 @@ def search_results_keyboard(results: list[dict], page: int = 0, total_pages: int
     return builder.as_markup()
 
 
-def media_keyboard(media_type: str, mal_id: int) -> InlineKeyboardMarkup:
+def media_keyboard(media_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="➕ Добавить в библиотеку", callback_data=f"add:{media_type}:{mal_id}")
+    builder.button(text="➕ Добавить в библиотеку", callback_data=f"add:{media_id}")
     builder.button(text="◀️ К поиску", callback_data="search")
     builder.button(text="🏠 Главное меню", callback_data="menu")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def status_keyboard(media_type: str, mal_id: int) -> InlineKeyboardMarkup:
+def status_keyboard(media_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     statuses = [
         ("🟡 Хочу", "planning"),
@@ -60,7 +60,7 @@ def status_keyboard(media_type: str, mal_id: int) -> InlineKeyboardMarkup:
         ("🔴 Брошено", "dropped"),
     ]
     for text, status in statuses:
-        builder.button(text=text, callback_data=f"status:{media_type}:{mal_id}:{status}")
+        builder.button(text=text, callback_data=f"status:{media_id}:{status}")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -74,21 +74,21 @@ def library_sections() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def library_actions(media_type: str, mal_id: int, status: str, score: int | None) -> InlineKeyboardMarkup:
+def library_actions(media_id: int, status: str, score: int | None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔄 Изменить статус", callback_data=f"edit_status:{media_type}:{mal_id}")
-    builder.button(text=f"⭐ Оценка: {score if score is not None else '—'}", callback_data=f"rate:{media_type}:{mal_id}")
-    builder.button(text="🗑 Удалить из библиотеки", callback_data=f"remove:{media_type}:{mal_id}")
-    builder.button(text="◀️ К библиотеке", callback_data=f"library:{media_type}")
+    builder.button(text="🔄 Изменить статус", callback_data=f"edit_status:{media_id}")
+    builder.button(text=f"⭐ Оценка: {score if score is not None else '—'}", callback_data=f"rate:{media_id}")
+    builder.button(text="🗑 Удалить из библиотеки", callback_data=f"remove:{media_id}")
+    builder.button(text="◀️ К библиотеке", callback_data=f"library:{media_id}")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def rating_keyboard(media_type: str, mal_id: int) -> InlineKeyboardMarkup:
+def rating_keyboard(media_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for score in range(1, 11):
-        builder.button(text=str(score), callback_data=f"rating:{media_type}:{mal_id}:{score}")
-    builder.button(text="◀️ Назад", callback_data=f"library_media:{media_type}:{mal_id}")
+        builder.button(text=str(score), callback_data=f"rating:{media_id}:{score}")
+    builder.button(text="◀️ Назад", callback_data=f"library_media:{media_id}")
     builder.adjust(5, 5, 1)
     return builder.as_markup()
 
