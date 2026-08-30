@@ -38,6 +38,7 @@ class JikanClient(MediaProvider):
 
         return {
             "provider": "mal",
+            "provider_id": str(item["mal_id"]),
             "external_id": str(item["mal_id"]),
             "mal_id": item["mal_id"],
             "title": item.get("title") or item.get("title_english") or "Без названия",
