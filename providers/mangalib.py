@@ -55,10 +55,13 @@ class MangaLibClient(MediaProvider):
         if cover_url and not str(cover_url).startswith("http"):
             cover_url = None
 
+        source_ids = {}
+        if item.get("shiki_id"):
+            source_ids["shikimori"] = str(item["shiki_id"])
+
         return {
             "provider": "mangalib",
             "provider_id": str(item.get("id")),
-            "mal_id": item.get("shiki_id"),
             "type": media_type,
             "title": title,
             "title_english": item.get("eng_name"),
@@ -70,6 +73,7 @@ class MangaLibClient(MediaProvider):
             "status": (item.get("status") or {}).get("label") if isinstance(item.get("status"), dict) else None,
             "description": item.get("summary"),
             "genres": genres,
+            "source_ids": source_ids,
             "url": item.get("href") or f"https://mangalib.me/{item.get('slug')}",
             "episodes": None,
             "chapters": chapters,
