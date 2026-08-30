@@ -70,9 +70,9 @@ class UserMedia(Base):
 
 class Genre(Base):
     __tablename__ = "genres"
+    __table_args__ = (UniqueConstraint("name", name="uq_genre_name"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    mal_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
 
     media: Mapped[list["Media"]] = relationship(secondary="media_genres", back_populates="genres")
