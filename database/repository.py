@@ -112,3 +112,44 @@ async def get_library(
 
     result = await session.execute(query.offset(page * per_page).limit(per_page))
     return list(result.scalars().all()), total_pages
+
+
+async def get_library_entry(
+    session: AsyncSession,
+    user_id: int,
+    mal_id: int,
+) -> UserMedia | None:
+    result = await session.execute(
+        select(UserMedia)
+        .join(Media)
+        .options(selectinload(UserMedia.media))
+        .where(UserMedia.user_id == user_id, Media.mal_id == mal_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_status(
+    session: AsyncSession,
+    entry: UserMedia,
+    status: str,
+) -> UserMedia:
+    entry.status = status
+    await session.commit()
+    await session.refresh(entry)
+    return entry
+
+
+async def update_score(
+    session: AsyncSession,
+    entry: UserMedia,
+    score: int,
+) -> UserMedia:
+    entry.score = score
+    await session.commit()
+    await session.refresh(entry)
+    return entry
+
+
+async def remove_from_library(session: AsyncSession, entry: UserMedia) -> None:
+    await session.delete(entry)
+    await session.commit()
