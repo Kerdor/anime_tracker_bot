@@ -12,7 +12,7 @@ def library_keyboard(entries: list[UserMedia], page: int, total_pages: int, stat
     for entry in entries:
         score = f"⭐{entry.score}" if entry.score is not None else ""
         title = entry.media.title[:38]
-        builder.button(text=f"{score} {title}".strip(), callback_data=f"library_media:{entry.media.type}:{entry.media.mal_id}")
+        builder.button(text=f"{score} {title}".strip(), callback_data=f"library_media:{entry.media.id}")
 
     if total_pages > 1:
         media_type = entries[0].media.type if entries else "anime"
