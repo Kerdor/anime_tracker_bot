@@ -22,11 +22,21 @@ def media_type_menu() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def search_results_keyboard(results: list[dict]) -> InlineKeyboardMarkup:
+def search_results_keyboard(results: list[dict], page: int = 0, total_pages: int = 1) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for index, item in enumerate(results):
-        builder.button(text=f"{index + 1}. {item['title'][:45]}", callback_data=f"media:{item['type']}:{item['mal_id']}")
-    builder.button(text="◀️ Главное меню", callback_data="menu")
+    start = page * 10
+    for index, item in enumerate(results[start:start + 10], start + 1):
+        builder.button(text=f"{index}. {item['title'][:45]}", callback_data=f"media:{item['type']}:{item['mal_id']}")
+
+    if total_pages > 1:
+        media_type = results[0]["type"] if results else "anime"
+        if page > 0:
+            builder.button(text="◀️", callback_data=f"search_page:{media_type}:{page - 1}")
+        builder.button(text=f"{page + 1}/{total_pages}", callback_data="search_noop")
+        if page + 1 < total_pages:
+            builder.button(text="▶️", callback_data=f"search_page:{media_type}:{page + 1}")
+
+    builder.button(text="🏠 Главное меню", callback_data="menu")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -80,4 +90,9 @@ def rating_keyboard(media_type: str, mal_id: int) -> InlineKeyboardMarkup:
         builder.button(text=str(score), callback_data=f"rating:{media_type}:{mal_id}:{score}")
     builder.button(text="◀️ Назад", callback_data=f"library_media:{media_type}:{mal_id}")
     builder.adjust(5, 5, 1)
+    return builder.as_markup()
+
+
+def search_noop_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
     return builder.as_markup()
