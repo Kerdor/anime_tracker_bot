@@ -5,6 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from bot.keyboards import (
+    library_actions,
     library_sections,
     main_menu,
     media_keyboard,
@@ -21,7 +22,6 @@ from database.repository import (
     remove_from_library,
     save_media,
     update_score,
-    update_status,
 )
 from database.session import SessionLocal
 from providers.jikan import JikanClient
@@ -188,7 +188,7 @@ async def remove_handler(callback: CallbackQuery) -> None:
     await callback.answer("Удалено")
 
 
-@router.callback_query(F.data.startswith("search"))
+@router.callback_query(F.data == "search")
 async def search_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.message.edit_text("🔎 Что будем искать?", reply_markup=media_type_menu())
@@ -210,6 +210,7 @@ async def search_query_handler(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     media_type = data["media_type"]
     query = (message.text or "").strip()
+
     if not query:
         await message.answer("Введи название произведения.")
         return
