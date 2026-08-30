@@ -40,21 +40,25 @@ class MediaAggregator:
         return best
 
     @classmethod
-    def _identity_keys(cls, item: dict[str, Any]) -> set[tuple[str, str]]:
-        keys: set[tuple[str, str]] = set()
+    def _identity_keys(cls, item: dict[str, Any]) -> set[tuple[str, str, str]]:
+        keys: set[tuple[str, str, str]] = set()
+        media_type = item.get("type")
+        if not media_type:
+            return keys
+
         provider = item.get("provider")
         provider_id = item.get("provider_id")
         if provider and provider_id:
-            keys.add((provider, str(provider_id)))
+            keys.add((media_type, provider, str(provider_id)))
         for source, source_id in item.get("source_ids", {}).items():
             if source and source_id:
-                keys.add((source, str(source_id)))
+                keys.add((media_type, source, str(source_id)))
         return keys
 
     @classmethod
     def _merge_results(cls, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         merged: list[dict[str, Any]] = []
-        identity_map: dict[tuple[str, str], int] = {}
+        identity_map: dict[tuple[str, str, str], int] = {}
 
         for item in results:
             item = dict(item)
