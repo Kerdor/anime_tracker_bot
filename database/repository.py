@@ -1,5 +1,6 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from database.models import Media, User, UserMedia
 
@@ -43,6 +44,7 @@ async def save_media(session: AsyncSession, data: dict) -> Media:
             type=data["type"],
             title=data["title"],
             title_original=data.get("title_original"),
+            description=data.get("description"),
             image_url=data.get("image_url"),
             score=data.get("score"),
             year=data.get("year"),
@@ -77,3 +79,36 @@ async def add_to_library(
     await session.commit()
     await session.refresh(entry)
     return entry
+
+
+async def get_library(
+    session: AsyncSession,
+    user_id: int,
+    media_type: str,
+    status: str | None = None,
+    page: int = 0,
+    per_page: int = 8,
+) -> tuple[list[UserMedia], int]:
+    query = (
+        select(UserMedia)
+        .join(Media)
+        .options(selectinload(UserMedia.media))
+        .where(UserMedia.user_id == user_id, Media.type == media_type)
+        .order_by(UserMedia.updated_at.desc())
+    )
+
+    count_query = (
+        select(func.count(UserMedia.id))
+        .join(Media)
+        .where(UserMedia.user_id == user_id, Media.type == media_type)
+    )
+
+    if status:
+        query = query.where(UserMedia.status == status)
+        count_query = count_query.where(UserMedia.status == status)
+
+    total = (await session.execute(count_query)).scalar_one()
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
+    result = await session.execute(query.offset(page * per_page).limit(per_page))
+    return list(result.scalars().all()), total_pages
