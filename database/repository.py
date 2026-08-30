@@ -2,7 +2,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from database.models import Genre, Media, User, UserMedia
+from database.models import Genre, Media, MediaSource, User, UserMedia
 
 
 async def get_or_create_user(session: AsyncSession, telegram_id: int, username: str | None, first_name: str | None) -> User:
@@ -19,25 +19,73 @@ async def get_or_create_user(session: AsyncSession, telegram_id: int, username: 
     return user
 
 
-async def get_media(session: AsyncSession, mal_id: int) -> Media | None:
-    result = await session.execute(select(Media).where(Media.mal_id == mal_id))
+async def get_media(session: AsyncSession, media_id: int) -> Media | None:
+    result = await session.execute(
+        select(Media)
+        .options(selectinload(Media.sources), selectinload(Media.genres))
+        .where(Media.id == media_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_media_by_source(session: AsyncSession, source: str, source_id: str) -> Media | None:
+    result = await session.execute(
+        select(Media)
+        .join(MediaSource)
+        .options(selectinload(Media.sources), selectinload(Media.genres))
+        .where(MediaSource.source == source, MediaSource.source_id == str(source_id))
+    )
     return result.scalar_one_or_none()
 
 
 async def save_media(session: AsyncSession, data: dict) -> Media:
-    media = await get_media(session, data["mal_id"])
+    source = data.get("provider")
+    source_id = data.get("provider_id")
+    media = None
+
+    if source and source_id:
+        media = await get_media_by_source(session, source, str(source_id))
+
     if media is None:
-        media = Media(mal_id=data["mal_id"], type=data["type"], title=data["title"], title_original=data.get("title_original"), description=data.get("description"), image_url=data.get("image_url"), score=data.get("score"), year=data.get("year"), status=data.get("status"))
+        for provider, external_id in data.get("source_ids", {}).items():
+            media = await get_media_by_source(session, provider, str(external_id))
+            if media is not None:
+                break
+
+    if media is None:
+        media = Media(
+            type=data["type"],
+            title=data["title"],
+            title_original=data.get("title_original"),
+            description=data.get("description"),
+            image_url=data.get("image_url"),
+            score=data.get("score"),
+            year=data.get("year"),
+            status=data.get("status"),
+        )
         session.add(media)
         await session.flush()
     else:
         media.title = data["title"]
-        media.title_original = data.get("title_original")
-        media.description = data.get("description")
-        media.image_url = data.get("image_url")
-        media.score = data.get("score")
-        media.year = data.get("year")
-        media.status = data.get("status")
+        media.title_original = data.get("title_original") or media.title_original
+        media.description = data.get("description") or media.description
+        media.image_url = data.get("image_url") or media.image_url
+        media.score = data.get("score") if data.get("score") is not None else media.score
+        media.year = data.get("year") or media.year
+        media.status = data.get("status") or media.status
+
+    source_ids = dict(data.get("source_ids", {}))
+    if source and source_id:
+        source_ids[source] = str(source_id)
+
+    existing_sources = {item.source: item for item in media.sources}
+    for provider, external_id in source_ids.items():
+        external_id = str(external_id)
+        existing = existing_sources.get(provider)
+        if existing is None:
+            session.add(MediaSource(media_id=media.id, source=provider, source_id=external_id))
+        elif existing.source_id != external_id:
+            existing.source_id = external_id
 
     for name in data.get("genres", []):
         result = await session.execute(select(Genre).where(Genre.name == name))
@@ -79,8 +127,12 @@ async def get_library(session: AsyncSession, user_id: int, media_type: str, stat
     return list(result.scalars().all()), total_pages
 
 
-async def get_library_entry(session: AsyncSession, user_id: int, mal_id: int) -> UserMedia | None:
-    result = await session.execute(select(UserMedia).join(Media).options(selectinload(UserMedia.media).selectinload(Media.genres)).where(UserMedia.user_id == user_id, Media.mal_id == mal_id))
+async def get_library_entry(session: AsyncSession, user_id: int, media_id: int) -> UserMedia | None:
+    result = await session.execute(
+        select(UserMedia)
+        .options(selectinload(UserMedia.media).selectinload(Media.genres))
+        .where(UserMedia.user_id == user_id, UserMedia.media_id == media_id)
+    )
     return result.scalar_one_or_none()
 
 
