@@ -1,4 +1,5 @@
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -23,7 +24,6 @@ from database.repository import (
     remove_from_library,
     save_media,
     update_score,
-    update_status,
 )
 from database.session import SessionLocal
 from providers.jikan import JikanClient
@@ -58,7 +58,7 @@ def media_card_text(item: dict) -> str:
 
     lines = [hbold(title)]
     if original and original != title:
-        lines.append(f"{original}")
+        lines.append(original)
     lines.extend(["", f"📅 {year}  •  {score}"])
 
     if item["type"] == "anime":
@@ -95,9 +95,14 @@ async def send_media_card(message: Message, item: dict, reply_markup=None) -> No
     text = media_card_text(item)
     image_url = item.get("image_url")
     if image_url:
-        await message.answer_photo(photo=image_url, caption=text, reply_markup=reply_markup)
+        await message.answer_photo(
+            photo=image_url,
+            caption=text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML,
+        )
     else:
-        await message.answer(text, reply_markup=reply_markup)
+        await message.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
 
 @router.message(CommandStart())
@@ -143,7 +148,7 @@ async def library_filter_handler(callback: CallbackQuery) -> None:
 
     title = "🎬 Аниме" if media_type == "anime" else "📚 Манга"
     if not entries:
-        text = f"{title}\n\nСтатус: {STATUS_NAMES.get(status, 'Все')}\n\nЗдесь пока ничего нет."
+        text = f"{title}\n\nСтатус: {STATUS_NAMES.get(status, '📋 Все')}\n\nЗдесь пока ничего нет."
         await callback.message.edit_text(text, reply_markup=library_status_keyboard(media_type))
         await callback.answer()
         return
@@ -200,7 +205,6 @@ async def library_media_handler(callback: CallbackQuery) -> None:
         await callback.answer("Не удалось загрузить карточку.", show_alert=True)
         return
 
-    item["user_score"] = entry.score
     await callback.message.delete()
     await send_media_card(callback.message, item, library_actions(media_type, mal_id, entry.status, entry.score))
     await callback.answer()
