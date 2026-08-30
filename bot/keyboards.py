@@ -22,19 +22,10 @@ def media_type_menu() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def search_results_keyboard(results: list[dict], page: int = 0, total_pages: int = 1) -> InlineKeyboardMarkup:
+def search_results_keyboard(results: list[dict]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    start = page * 10
-    for index, item in enumerate(results[start:start + 10], start + 1):
+    for index, item in enumerate(results[:10], 1):
         builder.button(text=f"{index}. {item['title'][:45]}", callback_data=f"media:{item['media_id']}")
-
-    if total_pages > 1:
-        media_type = results[0]["type"] if results else "anime"
-        if page > 0:
-            builder.button(text="◀️", callback_data=f"search_page:{media_type}:{page - 1}")
-        builder.button(text=f"{page + 1}/{total_pages}", callback_data="search_noop")
-        if page + 1 < total_pages:
-            builder.button(text="▶️", callback_data=f"search_page:{media_type}:{page + 1}")
 
     builder.button(text="🏠 Главное меню", callback_data="menu")
     builder.adjust(1)
@@ -79,7 +70,7 @@ def library_actions(media_id: int, status: str, score: int | None) -> InlineKeyb
     builder.button(text="🔄 Изменить статус", callback_data=f"edit_status:{media_id}")
     builder.button(text=f"⭐ Оценка: {score if score is not None else '—'}", callback_data=f"rate:{media_id}")
     builder.button(text="🗑 Удалить из библиотеки", callback_data=f"remove:{media_id}")
-    builder.button(text="◀️ К библиотеке", callback_data=f"library:{media_id}")
+    builder.button(text="◀️ К библиотеке", callback_data="library")
     builder.adjust(1)
     return builder.as_markup()
 
