@@ -35,12 +35,12 @@ class JikanClient(MediaProvider):
         year = item.get("year") or from_date.get("year") or published.get("from", "")[:4]
         titles = item.get("titles") or []
         title_variants = [title.get("title") for title in titles if title.get("title")]
+        mal_id = item["mal_id"]
 
         return {
             "provider": "mal",
-            "provider_id": str(item["mal_id"]),
-            "external_id": str(item["mal_id"]),
-            "mal_id": item["mal_id"],
+            "provider_id": str(mal_id),
+            "source_ids": {"mal": str(mal_id)},
             "title": item.get("title") or item.get("title_english") or "Без названия",
             "title_english": item.get("title_english"),
             "title_original": item.get("title_japanese"),
