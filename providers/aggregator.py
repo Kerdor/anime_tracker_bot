@@ -40,29 +40,81 @@ class MediaAggregator:
         return best
 
     @classmethod
+    def _identity_keys(cls, item: dict[str, Any]) -> set[tuple[str, str]]:
+        keys: set[tuple[str, str]] = set()
+        provider = item.get("provider")
+        provider_id = item.get("provider_id")
+        if provider and provider_id:
+            keys.add((provider, str(provider_id)))
+        mal_id = item.get("mal_id")
+        if mal_id:
+            keys.add(("mal", str(mal_id)))
+        return keys
+
+    @classmethod
     def _merge_results(cls, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        merged: dict[tuple[str, str], dict[str, Any]] = {}
+        merged: list[dict[str, Any]] = []
+        identity_map: dict[tuple[str, str], int] = {}
+
         for item in results:
+            item = dict(item)
+            item["search_score"] = cls._score_result(query, item)
+            item["providers"] = [item.get("provider")] if item.get("provider") else []
+            item["source_ids"] = {}
+            if item.get("provider") and item.get("provider_id"):
+                item["source_ids"][item["provider"]] = str(item["provider_id"])
+            if item.get("mal_id"):
+                item["source_ids"]["mal"] = str(item["mal_id"])
+
+            matched_index = None
+            for key in cls._identity_keys(item):
+                if key in identity_map:
+                    matched_index = identity_map[key]
+                    break
+
+            if matched_index is None:
+                matched_index = len(merged)
+                merged.append(item)
+            else:
+                current = merged[matched_index]
+                current_titles = set(current.get("title_variants", []))
+                current_titles.update(item.get("title_variants", []))
+                for field in ("title", "title_english", "title_original"):
+                    if item.get(field):
+                        current_titles.add(item[field])
+                current["title_variants"] = list(current_titles)
+
+                for field in ("image_url", "description", "title_english", "title_original", "url", "score", "year"):
+                    if item.get(field) and not current.get(field):
+                        current[field] = item[field]
+
+                if item.get("mal_id") and not current.get("mal_id"):
+                    current["mal_id"] = item["mal_id"]
+
+                current["providers"] = sorted(set(current.get("providers", [])) | set(item.get("providers", [])))
+                current["source_ids"].update(item.get("source_ids", {}))
+                current["search_score"] = max(current.get("search_score", 0), item["search_score"])
+
+            for key in cls._identity_keys(item):
+                identity_map[key] = matched_index
+
+        title_map: dict[tuple[str, str], int] = {}
+        final: list[dict[str, Any]] = []
+        for item in merged:
             key = (item.get("type", ""), cls.normalize_title(item.get("title", "")))
-            if key not in merged:
-                item["search_score"] = cls._score_result(query, item)
-                merged[key] = item
+            if key not in title_map:
+                title_map[key] = len(final)
+                final.append(item)
                 continue
 
-            current = merged[key]
-            current_titles = set(current.get("title_variants", []))
-            current_titles.update(item.get("title_variants", []))
-            current["title_variants"] = list(current_titles)
-            for field in ("image_url", "description", "title_english", "title_original", "url"):
-                if item.get(field) and not current.get(field):
-                    current[field] = item[field]
-            if item.get("mal_id") and not current.get("mal_id"):
-                current["mal_id"] = item["mal_id"]
-            current["providers"] = sorted(set(current.get("providers", [current.get("provider")])) | {item.get("provider")})
-            current["search_score"] = max(current.get("search_score", 0), cls._score_result(query, item))
+            current = final[title_map[key]]
+            current["title_variants"] = list(set(current.get("title_variants", [])) | set(item.get("title_variants", [])))
+            current["providers"] = sorted(set(current.get("providers", [])) | set(item.get("providers", [])))
+            current["source_ids"].update(item.get("source_ids", {}))
+            current["search_score"] = max(current.get("search_score", 0), item.get("search_score", 0))
 
         return sorted(
-            merged.values(),
+            final,
             key=lambda item: (item.get("search_score", 0), item.get("score") or 0),
             reverse=True,
         )
