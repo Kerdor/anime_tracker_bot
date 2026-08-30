@@ -29,10 +29,14 @@ class ShikimoriClient(MediaProvider):
         russian = item.get("russian")
         name = item.get("name") or russian or "Без названия"
         aliases = [value for value in [russian, item.get("name")] if value and value != (russian or name)]
+        source_ids = {"shikimori": str(item.get("id"))} if item.get("id") is not None else {}
+        if item.get("mal_id") is not None:
+            source_ids["mal"] = str(item["mal_id"])
+
         return {
             "provider": "shikimori",
             "provider_id": str(item.get("id")),
-            "mal_id": item.get("mal_id"),
+            "source_ids": source_ids,
             "type": media_type,
             "title": russian or name,
             "title_english": name,
