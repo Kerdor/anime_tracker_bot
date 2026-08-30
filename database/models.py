@@ -42,12 +42,13 @@ class Media(Base):
 
 class MediaSource(Base):
     __tablename__ = "media_sources"
-    __table_args__ = (UniqueConstraint("source", "source_id", name="uq_media_source"),)
+    __table_args__ = (UniqueConstraint("source", "source_id", "media_type", name="uq_media_source"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     source_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    media_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
 
     media: Mapped["Media"] = relationship(back_populates="sources")
 
