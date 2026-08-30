@@ -62,6 +62,29 @@ def media_to_item(media) -> dict:
     }
 
 
+def merge_media_details(item: dict, details: dict) -> dict:
+    merged = dict(item)
+    for field in (
+        "title",
+        "title_english",
+        "title_original",
+        "description",
+        "image_url",
+        "score",
+        "year",
+        "status",
+        "episodes",
+        "chapters",
+        "volumes",
+        "url",
+    ):
+        if details.get(field) is not None:
+            merged[field] = details[field]
+
+    merged["genres"] = list(dict.fromkeys((merged.get("genres") or []) + (details.get("genres") or [])))
+    return merged
+
+
 def media_card_text(item: dict) -> str:
     title = item["title"]
     original = item.get("title_original")
@@ -79,9 +102,15 @@ def media_card_text(item: dict) -> str:
     lines.extend(["", f"📅 {year}  •  {score}"])
 
     if item["type"] == "anime":
-        lines.append("🎬 Эпизоды: —")
+        episodes = item.get("episodes")
+        lines.append(f"🎬 Эпизоды: {episodes if episodes is not None else '—'}")
     else:
-        lines.append("📖 Главы: —  •  Томов: —")
+        chapters = item.get("chapters")
+        volumes = item.get("volumes")
+        lines.append(
+            f"📖 Главы: {chapters if chapters is not None else '—'}  •  "
+            f"Томов: {volumes if volumes is not None else '—'}"
+        )
 
     lines.extend([
         f"🏷 Жанры: {genres}",
@@ -104,6 +133,21 @@ async def send_media_card(message: Message, item: dict, reply_markup=None) -> No
         )
     else:
         await message.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+
+
+async def load_media_details(media, item: dict) -> dict:
+    aggregator = MediaAggregator()
+    try:
+        details = await aggregator.get_media(media, media.type)
+    except Exception:
+        details = None
+    finally:
+        await aggregator.close()
+
+    if details is None:
+        return item
+
+    return merge_media_details(item, details)
 
 
 @router.message(CommandStart())
@@ -206,7 +250,7 @@ async def library_media_handler(callback: CallbackQuery) -> None:
         await callback.answer("Произведение не найдено.", show_alert=True)
         return
 
-    item = media_to_item(media)
+    item = await load_media_details(media, media_to_item(media))
     await callback.message.delete()
     await send_media_card(callback.message, item, library_actions(media_id, entry.status, entry.score))
     await callback.answer()
@@ -333,7 +377,7 @@ async def media_handler(callback: CallbackQuery) -> None:
         await callback.answer("Произведение не найдено.", show_alert=True)
         return
 
-    item = media_to_item(media)
+    item = await load_media_details(media, media_to_item(media))
     await callback.message.delete()
     await send_media_card(callback.message, item, media_keyboard(media_id))
     await callback.answer()
