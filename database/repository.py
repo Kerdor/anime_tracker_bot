@@ -27,12 +27,7 @@ async def get_media(session: AsyncSession, mal_id: int) -> Media | None:
 async def save_media(session: AsyncSession, data: dict) -> Media:
     media = await get_media(session, data["mal_id"])
     if media is None:
-        media = Media(
-            mal_id=data["mal_id"], type=data["type"], title=data["title"],
-            title_original=data.get("title_original"), description=data.get("description"),
-            image_url=data.get("image_url"), score=data.get("score"), year=data.get("year"),
-            status=data.get("status"),
-        )
+        media = Media(mal_id=data["mal_id"], type=data["type"], title=data["title"], title_original=data.get("title_original"), description=data.get("description"), image_url=data.get("image_url"), score=data.get("score"), year=data.get("year"), status=data.get("status"))
         session.add(media)
         await session.flush()
     else:
@@ -85,11 +80,7 @@ async def get_library(session: AsyncSession, user_id: int, media_type: str, stat
 
 
 async def get_library_entry(session: AsyncSession, user_id: int, mal_id: int) -> UserMedia | None:
-    result = await session.execute(
-        select(UserMedia).join(Media).options(selectinload(UserMedia.media).selectinload(Media.genres)).where(
-            UserMedia.user_id == user_id, Media.mal_id == mal_id
-        )
-    )
+    result = await session.execute(select(UserMedia).join(Media).options(selectinload(UserMedia.media).selectinload(Media.genres)).where(UserMedia.user_id == user_id, Media.mal_id == mal_id))
     return result.scalar_one_or_none()
 
 
@@ -110,3 +101,28 @@ async def update_score(session: AsyncSession, entry: UserMedia, score: int) -> U
 async def remove_from_library(session: AsyncSession, entry: UserMedia) -> None:
     await session.delete(entry)
     await session.commit()
+
+
+async def get_user_statistics(session: AsyncSession, user_id: int) -> dict:
+    result = await session.execute(
+        select(Media.type, UserMedia.status, func.count(UserMedia.id))
+        .join(Media)
+        .where(UserMedia.user_id == user_id)
+        .group_by(Media.type, UserMedia.status)
+    )
+
+    by_type_status: dict[str, dict[str, int]] = {}
+    for media_type, status, count in result.all():
+        by_type_status.setdefault(media_type, {})[status] = count
+
+    result = await session.execute(
+        select(func.count(UserMedia.id), func.avg(UserMedia.score))
+        .where(UserMedia.user_id == user_id)
+    )
+    total, average_score = result.one()
+
+    return {
+        "total": total or 0,
+        "average_score": round(float(average_score), 2) if average_score is not None else None,
+        "by_type_status": by_type_status,
+    }
