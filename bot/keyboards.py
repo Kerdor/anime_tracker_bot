@@ -4,8 +4,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def main_menu() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🎬 Аниме", callback_data="section:anime")
-    builder.button(text="📚 Манга", callback_data="section:manga")
+    builder.button(text="🎬 Аниме", callback_data="library:anime")
+    builder.button(text="📚 Манга", callback_data="library:manga")
     builder.button(text="🔎 Поиск", callback_data="search")
     builder.button(text="👤 Мой профиль", callback_data="profile")
     builder.button(text="📊 Статистика", callback_data="stats")
@@ -25,10 +25,7 @@ def media_type_menu() -> InlineKeyboardMarkup:
 def search_results_keyboard(results: list[dict]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for index, item in enumerate(results):
-        builder.button(
-            text=f"{index + 1}. {item['title'][:45]}",
-            callback_data=f"media:{item['type']}:{item['mal_id']}",
-        )
+        builder.button(text=f"{index + 1}. {item['title'][:45]}", callback_data=f"media:{item['type']}:{item['mal_id']}")
     builder.button(text="◀️ Главное меню", callback_data="menu")
     builder.adjust(1)
     return builder.as_markup()
