@@ -1,4 +1,5 @@
 from typing import Any
+import re
 
 import httpx
 
@@ -16,13 +17,19 @@ class JikanClient:
         return response.json()
 
     @staticmethod
+    def _normalize_title(value: str) -> str:
+        value = value.lower().replace("ё", "е")
+        value = re.sub(r"[«»\"'`´]", " ", value)
+        value = re.sub(r"[^\w\s]", " ", value, flags=re.UNICODE)
+        return re.sub(r"\s+", " ", value).strip()
+
+    @staticmethod
     def _parse_media(item: dict[str, Any], media_type: str) -> dict[str, Any]:
         aired = item.get("aired") or {}
         published = item.get("published") or {}
         prop = aired.get("prop") or {}
         from_date = prop.get("from") or {}
         year = item.get("year") or from_date.get("year") or published.get("from", "")[:4]
-
         titles = item.get("titles") or []
         title_variants = [title.get("title") for title in titles if title.get("title")]
 
@@ -51,7 +58,21 @@ class JikanClient:
     async def search(self, query: str, media_type: str) -> list[dict[str, Any]]:
         endpoint = "anime" if media_type == "anime" else "manga"
         data = await self._get(endpoint, {"q": query, "limit": 25, "sfw": True})
-        return [self._parse_media(item, media_type) for item in data.get("data", [])]
+        results = [self._parse_media(item, media_type) for item in data.get("data", [])]
+        normalized_query = self._normalize_title(query)
+        query_words = set(normalized_query.split())
+
+        def rank(item: dict[str, Any]) -> tuple[int, int, float]:
+            titles = [item.get("title", ""), item.get("title_english") or "", item.get("title_original") or ""]
+            titles.extend(item.get("title_variants", []))
+            normalized_titles = [self._normalize_title(title) for title in titles if title]
+            exact = any(title == normalized_query for title in normalized_titles)
+            contains = any(normalized_query in title or title in normalized_query for title in normalized_titles)
+            overlap = max((len(query_words & set(title.split())) for title in normalized_titles), default=0)
+            return (3 if exact else 2 if contains else 1, overlap, max((item.get("score") or 0), 0))
+
+        results.sort(key=rank, reverse=True)
+        return results
 
     async def get_media(self, mal_id: int, media_type: str) -> dict[str, Any]:
         endpoint = "anime" if media_type == "anime" else "manga"
