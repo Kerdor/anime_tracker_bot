@@ -130,5 +130,35 @@ class MediaAggregator:
                 items.extend(result)
         return self._merge_results(query, items)
 
+    async def get_media(self, media, media_type: str) -> dict[str, Any] | None:
+        providers = {provider.name: provider for provider in self.providers}
+        sources = sorted(
+            media.sources,
+            key=lambda source: (0 if source.source == "shikimori" else 1 if source.source == "mal" else 2),
+        )
+
+        details: dict[str, Any] | None = None
+        for source in sources:
+            provider = providers.get(source.source)
+            if provider is None:
+                continue
+            try:
+                item = await provider.get_media(source.source_id, media_type)
+            except Exception:
+                continue
+            if item is None:
+                continue
+
+            if details is None:
+                details = item
+            else:
+                for field in ("title", "title_english", "title_original", "description", "image_url", "score", "year", "episodes", "chapters", "volumes", "url"):
+                    if details.get(field) is None and item.get(field) is not None:
+                        details[field] = item[field]
+                details["genres"] = list(dict.fromkeys((details.get("genres") or []) + (item.get("genres") or [])))
+                details["title_variants"] = list(dict.fromkeys((details.get("title_variants") or []) + (item.get("title_variants") or [])))
+
+        return details
+
     async def close(self) -> None:
         await asyncio.gather(*(provider.close() for provider in self.providers))
