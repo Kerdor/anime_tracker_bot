@@ -56,3 +56,12 @@ def status_keyboard(media_type: str, mal_id: int) -> InlineKeyboardMarkup:
         builder.button(text=text, callback_data=f"status:{media_type}:{mal_id}:{status}")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def library_sections() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🎬 Аниме", callback_data="library:anime")
+    builder.button(text="📚 Манга", callback_data="library:manga")
+    builder.button(text="🏠 Главное меню", callback_data="menu")
+    builder.adjust(2, 1)
+    return builder.as_markup()
