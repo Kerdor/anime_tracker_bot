@@ -4,11 +4,13 @@ from typing import Any
 
 from providers.base import MediaProvider
 from providers.jikan import JikanClient
+from providers.mangalib import MangaLibClient
+from providers.shikimori import ShikimoriClient
 
 
 class MediaAggregator:
     def __init__(self, providers: list[MediaProvider] | None = None) -> None:
-        self.providers = providers or [JikanClient()]
+        self.providers = providers or [JikanClient(), ShikimoriClient(), MangaLibClient()]
 
     @staticmethod
     def normalize_title(value: str) -> str:
@@ -51,8 +53,12 @@ class MediaAggregator:
             current_titles = set(current.get("title_variants", []))
             current_titles.update(item.get("title_variants", []))
             current["title_variants"] = list(current_titles)
-            if item.get("image_url") and not current.get("image_url"):
-                current["image_url"] = item["image_url"]
+            for field in ("image_url", "description", "title_english", "title_original", "url"):
+                if item.get(field) and not current.get(field):
+                    current[field] = item[field]
+            if item.get("mal_id") and not current.get("mal_id"):
+                current["mal_id"] = item["mal_id"]
+            current["providers"] = sorted(set(current.get("providers", [current.get("provider")])) | {item.get("provider")})
             current["search_score"] = max(current.get("search_score", 0), cls._score_result(query, item))
 
         return sorted(
@@ -71,12 +77,6 @@ class MediaAggregator:
             if isinstance(result, list):
                 items.extend(result)
         return self._merge_results(query, items)
-
-    async def get_media(self, provider: str, external_id: str, media_type: str) -> dict[str, Any] | None:
-        for item in self.providers:
-            if item.name == provider:
-                return await item.get_media(external_id, media_type)
-        return None
 
     async def close(self) -> None:
         await asyncio.gather(*(provider.close() for provider in self.providers))
