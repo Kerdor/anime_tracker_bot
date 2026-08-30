@@ -10,17 +10,17 @@ from database.models import Media, UserMedia
 def library_keyboard(entries: list[UserMedia], page: int, total_pages: int, status: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for entry in entries:
-        builder.button(
-            text=entry.media.title[:45],
-            callback_data=f"library_media:{entry.media.type}:{entry.media.mal_id}",
-        )
+        score = f"⭐{entry.score}" if entry.score is not None else ""
+        title = entry.media.title[:38]
+        builder.button(text=f"{score} {title}".strip(), callback_data=f"library_media:{entry.media.type}:{entry.media.mal_id}")
 
     if total_pages > 1:
+        media_type = entries[0].media.type if entries else "anime"
         if page > 0:
-            builder.button(text="◀️", callback_data=f"library_page:{entry.media.type if entries else 'anime'}:{status}:{page - 1}")
+            builder.button(text="◀️", callback_data=f"library_page:{media_type}:{status}:{page - 1}")
         builder.button(text=f"{page + 1}/{total_pages}", callback_data="library_noop")
         if page + 1 < total_pages:
-            builder.button(text="▶️", callback_data=f"library_page:{entry.media.type if entries else 'anime'}:{status}:{page + 1}")
+            builder.button(text="▶️", callback_data=f"library_page:{media_type}:{status}:{page + 1}")
 
     builder.button(text="🏠 Главное меню", callback_data="menu")
     builder.adjust(1)
