@@ -8,6 +8,7 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
 MAIN_FILE = PROJECT_DIR / "main.py"
+ALEMBIC_INI = PROJECT_DIR / "alembic.ini"
 POLL_INTERVAL = 5
 
 
@@ -43,7 +44,7 @@ def pull() -> bool:
 
 def migrate() -> bool:
     print("[MIGRATION] Проверка и применение миграций Alembic...", flush=True)
-    result = run_command(sys.executable, "-m", "alembic", "upgrade", "head")
+    result = run_command("alembic", "-c", str(ALEMBIC_INI), "upgrade", "head")
     output = (result.stdout + result.stderr).strip()
     if output:
         print(f"[MIGRATION] {output}", flush=True)
