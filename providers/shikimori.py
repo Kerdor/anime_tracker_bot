@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -37,6 +38,12 @@ class ShikimoriClient(MediaProvider):
         if item.get("mal_id") is not None:
             source_ids["mal"] = str(item["mal_id"])
 
+        image_url = ((item.get("image") or {}).get("original") or None)
+        if image_url:
+            parsed_image = urlparse(image_url)
+            if parsed_image.scheme not in {"http", "https"} or not parsed_image.netloc:
+                image_url = None
+
         return {
             "provider": "shikimori",
             "provider_id": str(item.get("id")),
@@ -46,7 +53,7 @@ class ShikimoriClient(MediaProvider):
             "title_english": name,
             "title_original": name,
             "title_variants": aliases,
-            "image_url": ((item.get("image") or {}).get("original") or None),
+            "image_url": image_url,
             "score": float(item["score"]) if item.get("score") else None,
             "year": int(item["aired_on"][:4]) if media_type == "anime" and item.get("aired_on", "")[:4].isdigit() else None,
             "description": item.get("description"),
