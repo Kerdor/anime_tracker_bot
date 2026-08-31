@@ -18,6 +18,17 @@ class MediaAggregator:
         value = re.sub(r"[^\w\s]", " ", value, flags=re.UNICODE)
         return re.sub(r"\s+", " ", value).strip()
 
+    @staticmethod
+    def transliterate_query(value: str) -> str:
+        mapping = {
+            "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+            "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+            "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+            "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch",
+            "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+        }
+        return "".join(mapping.get(char, char) for char in value.lower())
+
     @classmethod
     def _score_result(cls, query: str, item: dict[str, Any]) -> float:
         normalized_query = cls.normalize_title(query)
@@ -132,6 +143,18 @@ class MediaAggregator:
         for result in results:
             if isinstance(result, list):
                 items.extend(result)
+
+        if not items and re.search(r"[а-яё]", query, flags=re.IGNORECASE):
+            transliterated_query = self.transliterate_query(query)
+            if transliterated_query != query:
+                results = await asyncio.gather(
+                    *(provider.search(transliterated_query, media_type) for provider in providers),
+                    return_exceptions=True,
+                )
+                for result in results:
+                    if isinstance(result, list):
+                        items.extend(result)
+
         return self._merge_results(query, items)
 
     async def get_media(self, media, media_type: str) -> dict[str, Any] | None:
