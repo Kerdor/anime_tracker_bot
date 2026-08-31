@@ -1,3 +1,4 @@
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -44,6 +45,12 @@ class ShikimoriClient(MediaProvider):
             if parsed_image.scheme not in {"http", "https"} or not parsed_image.netloc:
                 image_url = None
 
+        description = item.get("description") or ""
+        description = re.sub(r"\[/?(?:character|b|i|u)(?:=[^\]]+)?\]", "", description)
+        description = re.sub(r"\s+", " ", description).strip()
+        if len(description) > 500:
+            description = description[:497].rsplit(" ", 1)[0] + "..."
+
         return {
             "provider": "shikimori",
             "provider_id": str(item.get("id")),
@@ -56,7 +63,7 @@ class ShikimoriClient(MediaProvider):
             "image_url": image_url,
             "score": float(item["score"]) if item.get("score") else None,
             "year": int(item["aired_on"][:4]) if media_type == "anime" and item.get("aired_on", "")[:4].isdigit() else None,
-            "description": item.get("description"),
+            "description": description or None,
             "genres": [genre.get("russian") or genre.get("name") for genre in item.get("genres", [])],
             "url": f"https://shikimori.one/{'animes' if media_type == 'anime' else 'mangas'}/{item.get('id')}",
             "episodes": item.get("episodes"),
