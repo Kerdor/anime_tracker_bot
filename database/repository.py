@@ -47,6 +47,7 @@ async def save_media(session: AsyncSession, data: dict) -> Media:
     source = data.get("provider")
     source_id = data.get("provider_id")
     media = None
+    is_new = False
 
     if source and source_id:
         media = await get_media_by_source(session, source, str(source_id), media_type)
@@ -70,6 +71,7 @@ async def save_media(session: AsyncSession, data: dict) -> Media:
         )
         session.add(media)
         await session.flush()
+        is_new = True
     else:
         media.title = data["title"]
         media.title_original = data.get("title_original") or media.title_original
@@ -83,7 +85,7 @@ async def save_media(session: AsyncSession, data: dict) -> Media:
     if source and source_id:
         source_ids[source] = str(source_id)
 
-    existing_sources = {
+    existing_sources = {} if is_new else {
         (item.source, item.source_id, item.media_type): item
         for item in media.sources
     }
