@@ -1,176 +1,103 @@
 # PROJECT STATE — Anime Tracker Bot
 
-> **Canonical handoff document.** This file describes the current product decisions, architecture, repository state, completed work, known problems and the exact next steps for continuing development in a new chat.
+> **Canonical handoff document.** This file is the primary context for continuing development in a new chat. It describes the product intent, architecture, current repository state, local environment, tests already performed, known failures, exact fixes already made, and the next development steps.
 >
 > **Repository:** `https://github.com/Kerdor/anime_tracker_bot`
 >
 > **Branch:** `main`
 >
-> **Last verified repository commit:** `7a11adc5e7078f55955c2a83500c3b56cef98394` (`fix: map MangaLib Shikimori IDs correctly`)
+> **Current repository commit:** `56cac7b7b0d75afac0b622d5db8f8dc18cc6d6ed` — `Fix bigint identity migration for existing PostgreSQL defaults`
 >
-> **Important:** The actual repository is authoritative for code. This file is authoritative for product intent and project history. Before making changes, inspect the current repository and reconcile it with this document.
+> **Important:** The repository is the source of truth for code. This file is the source of truth for product intent and development history. Before editing code, inspect the current repository and reconcile it with this document.
 
 ---
 
-# 0. CURRENT STATE — READ THIS FIRST
+# 0. CURRENT STATE — READ FIRST
 
-The project is a Telegram tracker for anime and manga, being evolved into a **multi-source media tracker**.
+The project is a Telegram bot for tracking anime and manga. It is being evolved from an originally MAL-centric implementation into a **canonical multi-source media tracker**.
 
-The core architectural transition is now substantially implemented:
+The intended architecture is:
 
 ```text
 Telegram user
-     │
-     ▼
-Bot handlers
-     │
-     ▼
+    ↓
+bot handlers
+    ↓
 MediaAggregator
-     │
-     ├── Jikan / MAL
-     ├── Shikimori
-     └── MangaLib
-     │
-     ▼
-Unified search result
-     │
-     ▼
-Canonical Media
-     │
-     ├── MediaSource (one or more external IDs)
-     ├── Genre / MediaGenre
-     └── UserMedia
-```
-
-The important design decision is:
-
-**External providers are data sources, not separate libraries.**
-
-A real-world work should be represented by one internal `Media` row whenever the system can confidently determine that multiple provider records refer to the same work. External IDs are stored in `MediaSource`.
-
-## Current verified migration state
-
-Alembic migrations now exist as:
-
-```text
-0001_initial
+    ├── Jikan / MAL
+    ├── Shikimori
+    └── MangaLib
     ↓
-0002_media_sources
+unified MediaResult
     ↓
-0003_source_independent_genres
+canonical Media
+    ├── MediaSource (external identities)
+    ├── Genre / MediaGenre
+    └── UserMedia (user library)
 ```
 
-Current Alembic head in the repository is therefore:
+Core rule:
 
-```text
-0003_source_independent_genres
-```
+**Providers are data sources, not separate identities.**
 
-The old state document was stale and incorrectly claimed that only `0001_initial` existed. This document supersedes that information.
+If the system can confidently determine that records from multiple providers describe the same real-world work, they should point to one internal `Media` row. External IDs belong in `MediaSource`.
 
-## Current verified model state
+## Current architectural status
 
-`database/models.py` contains:
+The multi-source refactor is substantially implemented:
 
-```text
-User
-Media
-MediaSource
-UserMedia
-Genre
-MediaGenre
-```
+- canonical internal `Media.id` is used by the bot;
+- provider IDs are stored in `MediaSource`;
+- `Media.mal_id` has been removed;
+- `Genre.mal_id` has been removed;
+- `MediaAggregator` searches Jikan, Shikimori and MangaLib concurrently;
+- handlers use internal `media_id` callbacks;
+- MangaLib detail loading exists;
+- MangaLib/Shikimori cross-ID handling was fixed;
+- migrations through the new 0005 revision exist;
+- PostgreSQL has now been installed locally;
+- the bot has been launched successfully and aiogram polling works;
+- real provider requests have been observed;
+- a real PostgreSQL migration was attempted and exposed a migration bug;
+- that migration bug has since been fixed in GitHub commit `56cac7b7`.
 
-`Media` no longer contains `mal_id`.
-
-`Genre` no longer contains `mal_id`.
-
-`MediaSource` stores external identities as:
-
-```text
-source
-source_id
-```
-
-with a unique constraint on:
-
-```text
-(source, source_id)
-```
-
-## Current verified bot flow
-
-`bot/handlers.py` now uses `MediaAggregator` for search and internal `media_id` callback values.
-
-The current callback design is source-independent:
-
-```text
-media:<media_id>
-add:<media_id>
-status:<media_id>:<status>
-edit_status:<media_id>
-rate:<media_id>
-rating:<media_id>:<score>
-remove:<media_id>
-library_media:<media_id>
-```
-
-This replaces the previous MAL-dependent callback concept.
-
-## Current providers
-
-Implemented provider classes:
-
-```text
-JikanClient
-ShikimoriClient
-MangaLibClient
-```
-
-Remanga is still planned and is not implemented yet.
-
-## Current known important limitation
-
-The project has **not yet been run end-to-end against a real local PostgreSQL database in this development session**. The repository contains migrations, but database migration execution and real Telegram/API testing still need to be verified locally.
-
-Do not tell the user that the whole bot is proven working until that test has been performed.
+The project is **not yet considered fully end-to-end verified**. The next immediate task is to pull the fixed migration locally, run `alembic upgrade head`, verify `alembic current`, then retest search and library operations.
 
 ---
 
 # 1. PRODUCT VISION
 
-The bot should become a polished Telegram tracker where a user can:
+The bot should eventually provide a polished Russian-language tracker where users can:
 
 - search anime;
 - search manga;
-- later search manhwa;
-- later search manhua;
-- later search novels/ranobe;
+- later search manhwa, manhua and novels/ranobe;
+- open detailed media cards;
 - add works to a personal library;
 - assign a status;
 - rate works from 1 to 10;
-- browse the library;
+- browse/filter their library;
 - view profile/statistics;
 - later receive recommendations;
-- later use a Telegram Web App with a richer interface.
+- later use a Telegram Web App.
 
-The user wants a product that feels **modern, dark, clean and polished**, not a primitive command-only bot.
+Desired product feel:
+
+- modern;
+- dark;
+- clean;
+- polished;
+- not a primitive command-only bot.
 
 Initial language:
 
 ```text
-Russian (ru)
+ru
 ```
 
-The architecture should make future localization possible without redesigning the whole application.
+Future localization should be possible without redesigning the architecture.
 
----
-
-# 2. PRODUCT DECISIONS
-
-## 2.1 Statuses
-
-The current status set is intentionally simple:
+## Statuses
 
 ```text
 planning   = 🟡 Хочу
@@ -180,60 +107,35 @@ paused     = ⚪ На паузе
 dropped    = 🔴 Брошено
 ```
 
-The user explicitly said that status is enough for the first version.
+The user explicitly considers this status set sufficient for the first version.
 
-Do **not** introduce an RPG-like progress/energy/achievement system or complicated progress mechanics unless explicitly requested.
+Do not introduce RPG-style progress, energy, achievements or complicated progression unless explicitly requested.
 
-## 2.2 Rating
-
-User rating:
+## Rating
 
 ```text
 1–10
 ```
 
-## 2.3 Catalog strategy
+## Catalog strategy
 
-The user does not want to manually maintain a giant catalog containing 100k+ anime and an even larger manga/manhwa/etc. catalog.
+Do **not** preload 100k+ works or maintain a giant manually curated catalog.
 
-Therefore:
+Providers should supply external catalog data. PostgreSQL should store normalized/cached media that the bot actually needs.
 
-- providers supply external catalog data;
-- PostgreSQL stores normalized/cached media that the bot actually needs;
-- do not preload entire external catalogs;
-- do not turn the bot into a huge static database project.
+## Scale
 
-## 2.4 Scale
+Initial target: hundreds of users, with architecture that remains reasonable for thousands. Do not overengineer for millions.
 
-Initial expected scale:
+## Recommendations
 
-```text
-hundreds of users
-```
-
-Architecture should remain reasonable for thousands of users, but there is no need to overengineer for millions yet.
-
-## 2.5 Recommendations
-
-Recommendations are planned but are **not current priority**.
-
-Later they can use:
-
-- ratings;
-- statuses;
-- genres;
-- authors/studios;
-- related works;
-- content similarity;
-- eventually collaborative filtering.
-
-Do not introduce ML prematurely.
+Planned, but not current priority. Later recommendations can use ratings, statuses, genres, metadata, related works and eventually collaborative filtering. Do not introduce ML prematurely.
 
 ---
 
-# 3. EXTERNAL SOURCES
+# 2. EXTERNAL PROVIDERS
 
-## 3.1 Jikan / MAL
+## 2.1 Jikan / MAL
 
 File:
 
@@ -241,7 +143,7 @@ File:
 providers/jikan.py
 ```
 
-Provider name:
+Internal provider name:
 
 ```text
 mal
@@ -249,27 +151,27 @@ mal
 
 Jikan is the MAL API provider.
 
-It is useful for:
+Useful for:
 
 - large catalog coverage;
 - MAL IDs;
 - English/Japanese titles;
 - scores;
 - anime/manga metadata;
-- future relations and other metadata.
+- future relations.
 
-Search endpoints currently follow the standard type split:
+Search endpoints:
 
 ```text
 anime → /anime
 manga → /manga
 ```
 
-The current search implementation uses a limit of 25 and has local title normalization/relevance ranking.
+Current search limit is 25. Local normalization/relevance ranking is applied by the aggregator.
 
-Jikan should not be treated as the only Russian-language search source.
+Provider-level `mal_id` is legitimate when it represents a real MAL external identity. It must not become the internal canonical identity again.
 
-## 3.2 Shikimori
+## 2.2 Shikimori
 
 File:
 
@@ -289,16 +191,16 @@ Default API base:
 https://shikimori.one/api
 ```
 
-Search endpoints:
+Search:
 
 ```text
 anime → /animes
 manga → /mangas
 ```
 
-Shikimori is especially valuable for Russian titles because its API exposes `russian`.
+Shikimori is especially valuable for Russian titles because the API exposes `russian`.
 
-The parser handles data including:
+Parser handles fields such as:
 
 - Shikimori ID;
 - MAL ID when supplied;
@@ -314,7 +216,9 @@ The parser handles data including:
 - URL;
 - episode/chapter/volume counts.
 
-## 3.3 MangaLib
+During local testing, `shikimori.one` returned HTTP 301 and the configured/followed endpoint `shikimori.io` returned HTTP 200 for the Naruto query. This provider therefore produced usable data during the test.
+
+## 2.3 MangaLib
 
 File:
 
@@ -328,26 +232,25 @@ Provider name:
 mangalib
 ```
 
-Default base URL:
+Default base:
 
 ```text
 https://mangalib.me
 ```
 
-Current search endpoint:
+Search endpoint currently used:
 
 ```text
-/search
+/search?type=manga&q=<query>
 ```
 
-with parameters equivalent to:
+Detail endpoint:
 
 ```text
-type=manga
-q=<query>
+/manga-short-info
 ```
 
-The current parser knows about fields such as:
+Parser understands fields including:
 
 - `rus_name`;
 - `name`;
@@ -363,15 +266,7 @@ The current parser knows about fields such as:
 - rating;
 - status.
 
-`get_media()` is now implemented using the MangaLib short-info endpoint.
-
-Current detail endpoint:
-
-```text
-/manga-short-info
-```
-
-The parser also reads `shiki_id` and stores it as:
+The parser reads MangaLib `shiki_id` as:
 
 ```text
 source_ids["shikimori"]
@@ -379,58 +274,48 @@ source_ids["shikimori"]
 
 It must **not** be treated as a MAL ID.
 
-This was explicitly fixed in commit:
+This was fixed in commit:
 
 ```text
-7a11adc5
-fix: map MangaLib Shikimori IDs correctly
+7a11adc5 — fix: map MangaLib Shikimori IDs correctly
 ```
 
-## 3.4 Remanga
+During the latest local search test MangaLib returned HTTP 404 for its search URL. This is a provider-side/API compatibility issue to investigate later; it should not be allowed to crash the whole aggregator.
 
-Remanga is planned.
+## 2.4 Remanga
 
-It is **not currently implemented** in the provider list.
+Planned only.
 
-Do not claim it is supported until an actual provider has been added and wired into `MediaAggregator`.
+It is not currently implemented or wired into `MediaAggregator`.
+
+Do not claim Remanga support until a real provider exists.
 
 ---
 
-# 4. SEARCH ARCHITECTURE
+# 3. SEARCH ARCHITECTURE
 
-The intended search flow is:
+Intended flow:
 
 ```text
-User query
-   ↓
+user query
+    ↓
 normalize query
-   ↓
+    ↓
 parallel provider searches
-   ↓
-collect provider results
-   ↓
+    ↓
+collect successful results
+    ↓
 normalize metadata
-   ↓
+    ↓
 identity matching
-   ↓
+    ↓
 title/year deduplication
-   ↓
-merge metadata
-   ↓
+    ↓
+merge metadata + source IDs
+    ↓
 rank
-   ↓
+    ↓
 Telegram result buttons
-```
-
-## Required search behavior
-
-The bot should eventually handle equivalent queries such as:
-
-```text
-Розовая пора моей школьной жизни сплошной обман
-Как и ожидалось, моя школьная жизнь...
-Oregairu
-Yahari Ore no Seishun Love Comedy wa Machigatteiru
 ```
 
 Search should understand:
@@ -439,10 +324,10 @@ Search should understand:
 - English titles;
 - original/Japanese titles;
 - alternate titles;
-- abbreviated titles;
+- abbreviations;
 - punctuation differences;
-- `ё` versus `е`;
-- capitalization differences;
+- `ё` vs `е`;
+- capitalization;
 - reasonable word overlap.
 
 Current normalization in `MediaAggregator`:
@@ -452,9 +337,7 @@ Current normalization in `MediaAggregator`:
 - removes punctuation;
 - collapses whitespace.
 
-## Current aggregator implementation
-
-File:
+Current aggregator file:
 
 ```text
 providers/aggregator.py
@@ -466,7 +349,7 @@ Class:
 MediaAggregator
 ```
 
-Current default providers:
+Default providers:
 
 ```python
 JikanClient()
@@ -474,46 +357,43 @@ ShikimoriClient()
 MangaLibClient()
 ```
 
-Searches run concurrently with:
+Provider searches use:
 
 ```python
 asyncio.gather(..., return_exceptions=True)
 ```
 
-Therefore a provider failure should not remove all results.
+Therefore one provider failure should not remove all provider results.
 
-The aggregator currently:
+Aggregator responsibilities currently include:
 
-- normalizes titles;
-- scores search relevance;
-- collects provider IDs;
-- creates `source_ids` mappings;
-- merges exact provider identities;
-- preserves cross-source IDs;
-- performs a second title-based deduplication pass;
-- makes title deduplication year-aware;
-- merges variants and metadata;
-- ranks by search relevance and provider score.
+- title normalization;
+- search relevance scoring;
+- provider ID collection;
+- `source_ids` creation;
+- exact provider identity merging;
+- cross-source ID preservation;
+- second title-based deduplication;
+- year-aware title deduplication;
+- variant merging;
+- metadata merging;
+- ranking by relevance/provider score.
 
-## Important limitation
-
-Entity resolution is still heuristic.
-
-Never aggressively fuzzy-merge two works only because their names look similar.
+## Entity resolution safety rule
 
 Preferred confidence order:
 
 1. same external provider ID;
-2. explicit cross-source identity such as a known MAL/Shikimori relation;
+2. explicit cross-source identity such as known MAL/Shikimori relation;
 3. strong normalized title match;
-4. type/year and additional metadata;
+4. type/year plus additional metadata;
 5. conservative fuzzy matching only when confidence is high.
 
-A duplicate is safer than incorrectly merging two different works.
+A duplicate result is safer than incorrectly merging two different works.
 
 ---
 
-# 5. DATABASE MODEL — CURRENT
+# 4. DATABASE MODEL
 
 File:
 
@@ -521,13 +401,24 @@ File:
 database/models.py
 ```
 
-## 5.1 User
+Current models:
+
+```text
+User
+Media
+MediaSource
+UserMedia
+Genre
+MediaGenre
+```
+
+## User
 
 Fields:
 
 ```text
 id
-telegram_id
+telgram_id
 username
 first_name
 language
@@ -535,13 +426,11 @@ created_at
 updated_at
 ```
 
-`telegram_id` is unique and indexed.
+`telegram_id` is unique/indexed. `language` defaults to `ru`.
 
-`language` defaults to `ru`.
+## Media
 
-## 5.2 Media
-
-Current fields:
+Fields:
 
 ```text
 id
@@ -565,13 +454,13 @@ library_entries
 genres
 ```
 
-**Important:** `Media` no longer has `mal_id`.
+Important: there is no `Media.mal_id` anymore.
 
-The internal `Media.id` is the canonical identity used by the bot/library.
+`Media.id` is the canonical internal identity used by the bot and library.
 
-## 5.3 MediaSource
+## MediaSource
 
-Current fields:
+Fields:
 
 ```text
 id
@@ -595,11 +484,9 @@ Media #42
 └── mangalib   → 55555
 ```
 
-All can point to one canonical `Media` when identity matching is reliable.
+## UserMedia
 
-## 5.4 UserMedia
-
-Current fields:
+Fields:
 
 ```text
 id
@@ -619,28 +506,20 @@ Unique constraint:
 
 This is the user's library relation.
 
-## 5.5 Genre
+## Genre
 
-Current fields:
+Fields:
 
 ```text
 id
 name
 ```
 
-Unique constraint:
+Unique by name. `Genre.mal_id` was removed.
 
-```text
-name
-```
+## MediaGenre
 
-Genre is now source-independent.
-
-The previous MAL-specific `mal_id` was removed.
-
-## 5.6 MediaGenre
-
-Many-to-many relation:
+Many-to-many:
 
 ```text
 media_id
@@ -649,11 +528,11 @@ media_id
 
 with unique `(media_id, genre_id)`.
 
-The migration was specifically written to preserve existing `media_genres` links when duplicate genre names are consolidated.
+Genre migrations were designed to preserve valid `MediaGenre` relationships while consolidating duplicate genre names.
 
 ---
 
-# 6. ALEMBIC / MIGRATIONS — CURRENT
+# 5. ALEMBIC / DATABASE MIGRATIONS — VERY IMPORTANT
 
 Directory:
 
@@ -661,97 +540,116 @@ Directory:
 alembic/versions/
 ```
 
-Current migrations:
-
-```text
-0001_initial.py
-0002_media_sources.py
-0003_source_independent_genres.py
-```
-
-## 6.1 0001_initial
-
-Creates the original schema.
-
-At that point `Media` and `Genre` were MAL-centric:
-
-```text
-Media.mal_id
-Genre.mal_id
-```
-
-## 6.2 0002_media_sources
-
-Revision:
-
-```text
-0002_media_sources
-```
-
-Revises:
+Current chain:
 
 ```text
 0001_initial
-```
-
-Purpose:
-
-- creates `media_sources`;
-- copies existing `media.mal_id` values into `media_sources` as source `mal`;
-- removes `media.mal_id`;
-- adds the `(source, source_id)` uniqueness rule.
-
-This is the main migration from MAL identity to provider identity.
-
-## 6.3 0003_source_independent_genres
-
-Revision:
-
-```text
-0003_source_independent_genres
-```
-
-Revises:
-
-```text
+    ↓
 0002_media_sources
+    ↓
+0003_source_independent_genres
+    ↓
+0004_typed_media_sources
+    ↓
+0005_bigint_identity
 ```
 
-Purpose:
+The previous PROJECT_STATE was stale and stopped at 0003. The repository now contains 0004 and 0005 as well.
 
-- removes `Genre.mal_id`;
-- makes genre name unique;
-- consolidates duplicate genre rows by name;
-- preserves `MediaGenre` links while consolidating duplicates.
+## 0001_initial
 
-## Migration warning
+Original schema. It created BIGINT/autoincrementing primary keys with PostgreSQL sequence-backed defaults.
 
-The migrations have been authored but have **not yet been confirmed against a real PostgreSQL instance during the current development session**.
+## 0002_media_sources
 
-Before declaring the DB layer production-ready, run:
+Moves external identity away from `Media.mal_id` into `media_sources` and preserves old MAL IDs as source `mal`.
+
+## 0003_source_independent_genres
+
+Removes MAL-specific genre identity, makes genre names unique and preserves media/genre relationships while consolidating duplicates.
+
+## 0004_typed_media_sources
+
+Makes media source identity type-aware as implemented in the repository.
+
+## 0005_bigint_identity — root cause and fix
+
+The original 0005 migration attempted to execute SQL equivalent to:
+
+```sql
+ALTER TABLE "users" ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY
+```
+
+for several tables.
+
+This failed locally with PostgreSQL:
+
+```text
+asyncpg.exceptions.ObjectNotInPrerequisiteStateError:
+column "id" of relation "users" already has a default
+```
+
+The reason is important:
+
+**The initial migration already creates PostgreSQL sequence-backed defaults for the BIGINT primary keys. Adding IDENTITY on top of an existing default is invalid. The existing defaults are already sufficient for SQLAlchemy inserts.**
+
+The fixed 0005 migration is intentionally a no-op:
+
+```python
+def upgrade() -> None:
+    pass
+
+
+def downgrade() -> None:
+    pass
+```
+
+The migration documentation explains that the existing PostgreSQL defaults must be preserved.
+
+The fix was committed to GitHub as:
+
+```text
+56cac7b7b0d75afac0b622d5db8f8dc18cc6d6ed
+Fix bigint identity migration for existing PostgreSQL defaults
+```
+
+GitHub file currently contains the fixed migration.
+
+### IMPORTANT LOCAL STATE
+
+The user ran `alembic upgrade head` against the **old/broken 0005** and got the failure above.
+
+Because PostgreSQL DDL was transactional, the failed migration did not partially apply the 0005 schema change. The database should remain at the previous migration revision until the corrected 0005 is pulled and successfully applied.
+
+### Exact next commands
+
+From the project directory:
 
 ```bat
+git pull
 alembic upgrade head
 alembic current
 ```
 
-against a valid local PostgreSQL database.
+Expected final Alembic revision:
 
-Do not manually drop/recreate the database just to make the migration pass.
+```text
+0005_bigint_identity
+```
 
-Do not ask the user to expose their real `BOT_TOKEN` or database password in chat.
+Do not delete/recreate the database merely to solve this issue.
+
+Do not manually modify PostgreSQL internals unless a new concrete error requires it.
 
 ---
 
-# 7. DATABASE REPOSITORY — CURRENT
+# 6. DATABASE REPOSITORY
 
 File:
 
 ```text
 database/repository.py
 ```
-
-The repository is now source-independent at the core level.
 
 Important functions include:
 
@@ -769,55 +667,29 @@ remove_from_library(...)
 get_user_statistics(...)
 ```
 
-## `get_media`
+`get_media()` resolves by internal `Media.id` and eager-loads sources/genres.
 
-Looks up by internal:
-
-```text
-Media.id
-```
-
-and eager-loads:
+`get_media_by_source()` resolves by:
 
 ```text
-Media.sources
-Media.genres
+source + source_id
 ```
 
-## `get_media_by_source`
+`save_media()` is intended to:
 
-Looks up by:
-
-```text
-source
-source_id
-```
-
-This is the correct way to resolve a provider identity.
-
-## `save_media`
-
-Current intended behavior:
-
-1. look for an existing media by `provider/provider_id`;
-2. if not found, look through `source_ids`;
-3. create canonical `Media` if necessary;
+1. find existing media by provider/provider ID;
+2. otherwise search `source_ids`;
+3. create canonical Media if necessary;
 4. update available metadata;
-5. create missing `MediaSource` records;
-6. create/reuse genres by name;
+5. create missing MediaSource records;
+6. create/reuse genres;
 7. commit.
 
-This is the main persistence bridge from aggregator results into the canonical database model.
-
-## Important remaining repository concern
-
-`save_media()` is currently good enough for the current flow but should be reviewed for race conditions if multiple users select the same new external title concurrently. The DB unique constraint protects `(source, source_id)`, but application-level handling of an `IntegrityError`/retry may eventually be needed.
-
-Do not add complicated locking until a real concurrency problem is observed.
+Potential future race condition: two users could save the same new external title concurrently. DB uniqueness is the main protection. Only add retry/upsert handling if real `IntegrityError` concurrency is observed.
 
 ---
 
-# 8. BOT HANDLERS — CURRENT
+# 7. BOT HANDLERS / CALLBACK ARCHITECTURE
 
 File:
 
@@ -825,173 +697,63 @@ File:
 bot/handlers.py
 ```
 
-The current handler flow uses:
+Search now uses:
 
 ```python
-from providers.aggregator import MediaAggregator
+MediaAggregator
 ```
 
-Search flow:
-
-```text
-search button
-    ↓
-select anime/manga
-    ↓
-enter query
-    ↓
-MediaAggregator.search()
-    ↓
-save results through repository
-    ↓
-assign internal media_id
-    ↓
-show result buttons
-```
-
-Result callbacks now use canonical internal IDs.
-
-## Current media detail flow
-
-When a user opens a media result or library entry:
-
-```text
-internal media_id
-    ↓
-get_media()
-    ↓
-Media + MediaSource(s)
-    ↓
-MediaAggregator.get_media()
-    ↓
-provider details
-    ↓
-merge with canonical data
-    ↓
-Telegram media card
-```
-
-The aggregator's detail loader tries available providers based on the stored source records.
-
-Current provider preference in `get_media()` is approximately:
-
-```text
-Shikimori
-MAL/Jikan
-MangaLib
-```
-
-with additional metadata merged when the first provider does not contain a field.
-
-Provider errors are caught so one unavailable provider does not necessarily destroy the card.
-
-## Current media card
-
-The card can display:
-
-- title;
-- original title;
-- year;
-- external score;
-- episode count for anime;
-- chapter/volume counts for manga;
-- genres;
-- description;
-- image when available.
-
-## Important limitation
-
-The current detail merge is not yet a full metadata synchronization system.
-
-It loads details on demand but does not yet implement a robust cache/refresh policy.
-
-That should be addressed later, after end-to-end behavior is verified.
-
----
-
-# 9. BOT KEYBOARDS — CURRENT
-
-File:
-
-```text
-bot/keyboards.py
-```
-
-Main menu currently contains:
-
-```text
-🎬 Аниме
-📚 Манга
-🔎 Поиск
-👤 Мой профиль
-📊 Статистика
-```
-
-Search type:
-
-```text
-🎬 Аниме
-📚 Манга
-```
-
-Media result buttons use:
+Canonical callbacks:
 
 ```text
 media:<media_id>
-```
-
-Library actions use internal `media_id`.
-
-Rating uses:
-
-```text
+add:<media_id>
+status:<media_id>:<status>
+edit_status:<media_id>
+rate:<media_id>
 rating:<media_id>:<score>
+remove:<media_id>
+library_media:<media_id>
 ```
 
-The status set remains:
+Do not reintroduce callbacks using MAL IDs as canonical identities.
+
+Current flow:
 
 ```text
-planning
-watching
-completed
-paused
-dropped
+/start
+ ↓
+main menu
+ ↓
+search
+ ↓
+anime or manga
+ ↓
+query
+ ↓
+MediaAggregator
+ ↓
+results
+ ↓
+internal media_id
+ ↓
+media card
+ ↓
+add to library / status / rating
 ```
-
-## Important architectural rule
-
-Do not reintroduce callbacks containing:
-
-```text
-mal_id
-```
-
-The canonical callback identity is now the internal `Media.id`.
 
 ---
 
-# 10. LIBRARY — CURRENT
+# 8. LIBRARY / PROFILE
 
-File:
-
-```text
-bot/library.py
-```
-
-Library is source-independent because `UserMedia` references:
-
-```text
-Media.id
-```
-
-not a provider ID.
+`bot/library.py` provides source-independent library behavior because `UserMedia` points to `Media.id`.
 
 Current library sections:
 
 - anime;
 - manga.
 
-Current filters:
+Filters:
 
 - all;
 - completed;
@@ -1000,51 +762,287 @@ Current filters:
 - paused;
 - dropped.
 
-Pagination is present.
+Supported actions:
 
-Library entries support:
+- open media;
+- change status;
+- rate 1–10;
+- remove;
+- return to library;
+- pagination.
 
-- changing status;
-- rating 1–10;
-- removing from library;
-- returning to the library.
+`bot/profile.py` provides basic profile/statistics functionality, including library size, type/status counts and average score.
 
-The library should not care whether a title originated from MAL, Shikimori, MangaLib or a future provider.
+Do not overbuild statistics before the core search/library flow is stable.
 
 ---
 
-# 11. PROFILE / STATISTICS
+# 9. MEDIA DETAILS
 
-File:
+Media cards can display, when available:
+
+- title;
+- original title;
+- year;
+- provider score;
+- anime episode count;
+- manga chapter/volume counts;
+- genres;
+- description;
+- image.
+
+`MediaAggregator.get_media()` attempts to use available provider details and merges metadata when one provider lacks a field.
+
+Provider errors should not unnecessarily destroy the card.
+
+Current limitation: details are fetched on demand. There is no mature freshness/cache policy yet. Add caching later after end-to-end correctness is verified.
+
+---
+
+# 10. LOCAL ENVIRONMENT — VERIFIED
+
+OS:
 
 ```text
-bot/profile.py
+Windows 10 22H2
 ```
 
-A basic profile/statistics foundation exists.
+Architecture:
 
-The repository has statistics aggregation for:
+```text
+AMD64
+```
 
-- total library size;
-- media type/status counts;
-- average user score.
+Python:
 
-This is intentionally basic.
+```text
+Python 3.12
+```
 
-Do not overbuild statistics until search/library/media identity is stable.
+Project directory:
 
-Future possibilities:
+```text
+C:\Users\nik_s\OneDrive\Рабочий стол\ALL\it\projects\python\tg\anime_tracker_bot
+```
 
-- completed count;
-- genre distribution;
-- rating distribution;
-- activity over time;
-- favorite genres;
-- watched/read totals when reliable metadata exists.
+PostgreSQL has been installed locally and is being used directly. Docker is **not** required for current local development.
+
+The user has limited disk space (about 46 GB free was reported). Do not introduce Docker/WSL/container requirements unless they are genuinely needed.
+
+During setup, WSL/Virtual Machine Platform components were installed while investigating Docker compatibility. The project itself does not depend on Linux or Docker for the current local workflow.
+
+`.env` exists locally and contains the bot/database configuration. Never ask the user to paste real secrets into chat.
 
 ---
 
-# 12. PROJECT STRUCTURE — VERIFIED CURRENT REPOSITORY
+# 11. DEPENDENCY / HTTP2 ISSUE THAT WAS ALREADY FIXED LOCALLY
+
+Initial provider search crashed with:
+
+```text
+ImportError: Using http2=True, but the 'h2' package is not installed.
+Make sure to install httpx using `pip install httpx[http2]`.
+```
+
+The traceback originated from:
+
+```text
+providers/mangalib.py
+```
+
+where `httpx.AsyncClient(..., http2=True)` is created.
+
+The issue was resolved locally by installing the HTTP/2 dependency. Subsequent logs show MangaLib requests using:
+
+```text
+HTTP/2
+```
+
+Therefore do not re-diagnose this as the current problem unless the environment is rebuilt and the dependency disappears.
+
+The requirements file should eventually explicitly guarantee the required HTTP/2 dependency so another machine does not reproduce this failure.
+
+---
+
+# 12. REAL BOT TESTS ALREADY PERFORMED
+
+The bot was launched successfully with:
+
+```bat
+C:\Users\nik_s\AppData\Local\Programs\Python\Python312\python.exe main.py
+```
+
+Aiogram reported:
+
+```text
+Start polling
+Run polling for bot @anime_tracker_hub_bot id=8868382935 - 'Anime Tracker'
+```
+
+So Telegram polling and the bot token/configuration are working.
+
+Basic `/start` interaction worked and the bot sent:
+
+```text
+🔎 Введи название аниме:
+```
+
+## Search test: Naruto
+
+Queries tested:
+
+```text
+наруто
+Наруто
+Naruto
+```
+
+Observed provider requests included:
+
+```text
+Jikan:
+GET https://api.jikan.moe/v4/anime?q=...&limit=25&sfw=true
+→ HTTP 504 Gateway Time-out
+```
+
+```text
+Shikimori:
+GET https://shikimori.one/api/animes?search=...&limit=20
+→ HTTP 301 Moved Permanently
+```
+
+followed by:
+
+```text
+GET https://shikimori.io/api/animes?search=...&limit=20
+→ HTTP 200 OK
+```
+
+and:
+
+```text
+MangaLib:
+GET https://mangalib.me/search?type=manga&q=...
+→ HTTP 404 Not Found
+```
+
+The bot handled the update rather than crashing, but the user saw either:
+
+```text
+Ничего не найдено. Попробуй другое название.
+```
+
+or:
+
+```text
+Не удалось сохранить результаты поиска. Попробуй ещё раз позже.
+```
+
+This happened before the fixed 0005 migration was pulled/applied, so the search/save path must be retested after the DB reaches the corrected head.
+
+### Important interpretation
+
+There are at least two independent external-provider issues visible in the test:
+
+1. Jikan returned 504.
+2. MangaLib search returned 404.
+
+Shikimori returned 200 after redirect handling.
+
+The aggregator is already designed to tolerate provider exceptions. Therefore, after the DB migration is fixed, the next question is whether the Shikimori result is correctly persisted and displayed even when Jikan/MangaLib fail.
+
+Do not assume the provider errors are the same bug as the database save error.
+
+---
+
+# 13. PREVIOUS MIGRATION TEST HISTORY
+
+Earlier, before 0005 was introduced, the local database successfully ran:
+
+```text
+0001_initial
+0002_media_sources
+0003_source_independent_genres
+0004_typed_media_sources
+```
+
+The user then pulled a new migration and ran:
+
+```bat
+alembic upgrade head
+```
+
+The old 0005 failed exactly at:
+
+```sql
+ALTER TABLE "users" ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY
+```
+
+with:
+
+```text
+column "id" of relation "users" already has a default
+```
+
+The fix is now already committed to GitHub. The local clone needs to pull it.
+
+---
+
+# 14. CURRENT GITHUB STATE
+
+Current `main` HEAD:
+
+```text
+56cac7b7b0d75afac0b622d5db8f8dc18cc6d6ed
+```
+
+Commit message:
+
+```text
+Fix bigint identity migration for existing PostgreSQL defaults
+```
+
+The commit changes only:
+
+```text
+alembic/versions/0005_bigint_identity.py
+```
+
+Old behavior:
+
+```python
+from alembic import op
+
+_TABLES = ("users", "media", "genres", "user_media", "media_sources")
+
+
+def upgrade() -> None:
+    for table in _TABLES:
+        op.execute(
+            f'ALTER TABLE "{table}" ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY'
+        )
+```
+
+New behavior:
+
+```python
+def upgrade() -> None:
+    pass
+
+
+def downgrade() -> None:
+    pass
+```
+
+Reason: PostgreSQL's existing sequence-backed defaults are already sufficient and must not be converted to IDENTITY.
+
+The user must run `git pull` before retrying the migration.
+
+---
+
+# 15. CURRENT PROJECT STRUCTURE
+
+Expected current structure:
 
 ```text
 anime_tracker_bot/
@@ -1066,11 +1064,11 @@ anime_tracker_bot/
 │   └── versions/
 │       ├── 0001_initial.py
 │       ├── 0002_media_sources.py
-│       └── 0003_source_independent_genres.py
+│       ├── 0003_source_independent_genres.py
+│       ├── 0004_typed_media_sources.py
+│       └── 0005_bigint_identity.py
 │
 ├── api/
-│   └── __init__.py
-│
 ├── bot/
 │   ├── __init__.py
 │   ├── handlers.py
@@ -1094,459 +1092,223 @@ anime_tracker_bot/
     └── shikimori.py
 ```
 
-The structure is intentionally small.
-
-Do not split it into dozens of services/layers without a concrete need.
+Do not split this into many services/layers without a concrete need.
 
 ---
 
-# 13. APPLICATION ENTRYPOINT
+# 16. README STATUS
 
-File:
+`README.md` exists but remains relatively minimal compared with the current architecture.
 
-```text
-main.py
-```
-
-Current stack:
-
-- Python;
-- aiogram;
-- SQLAlchemy async;
-- Alembic;
-- PostgreSQL;
-- httpx providers.
-
-The dispatcher currently includes:
-
-```text
-bot.handlers.router
-bot.profile.router
-```
-
-and starts aiogram polling.
-
----
-
-# 14. CONFIG / LOCAL ENVIRONMENT
-
-File:
-
-```text
-config.py
-```
-
-Required environment configuration includes:
-
-```text
-BOT_TOKEN
-DATABASE_URL
-```
-
-The user must keep real secrets local.
-
-Do not ask them to paste:
-
-- bot token;
-- database password;
-- other secrets.
-
-The repository contains `.env.example`.
-
-## User's known local environment
-
-Windows machine.
-
-Example project directory:
-
-```text
-C:\Users\nik_s\OneDrive\Рабочий стол\ALL\it\projects\python\tg\anime_tracker_bot
-```
-
-Known Python version from the previous project state:
-
-```text
-Python 3.12.10
-```
-
-Known pip version:
-
-```text
-pip 26.1.2
-```
-
-Docker is not installed.
-
-Therefore do not assume Docker is available just because `docker-compose.yml` exists.
-
-The user is comfortable with simple CMD/Git commands but is not a database administrator.
-
-When database setup is needed, give exact commands and short explanations.
-
----
-
-# 15. README STATUS
-
-`README.md` exists but is still relatively minimal and should eventually be updated to reflect the current architecture.
-
-It should eventually document:
+Eventually it should document:
 
 - multi-source architecture;
 - Jikan/MAL;
 - Shikimori;
 - MangaLib;
 - canonical `Media` + `MediaSource` model;
-- migrations;
-- setup;
-- current bot features;
+- PostgreSQL setup;
+- Alembic migrations;
+- bot features;
 - local development workflow.
 
-Do not repeatedly rewrite README for every small code change. Update it after the current architecture and local setup have stabilized.
+Do not spend time rewriting README until the current runtime and DB flow are stable.
 
 ---
 
-# 16. COMPLETED WORK — RECENT HISTORY
+# 17. KNOWN PROBLEMS / TECHNICAL DEBT — PRIORITIZED
 
-The following work was completed during the current architectural transition.
+## CRITICAL — local database must reach migration 0005
 
-## Canonical source model
+Current known local failure is the old 0005 IDENTITY migration. GitHub now contains the fixed no-op migration.
 
-Implemented:
-
-```text
-MediaSource
-```
-
-and moved external identity away from:
-
-```text
-Media.mal_id
-```
-
-toward:
-
-```text
-MediaSource(source, source_id)
-```
-
-## Genre decoupling
-
-Removed MAL identity from `Genre`.
-
-Genres are now keyed by their normalized stored name rather than MAL ID.
-
-## Genre migration safety
-
-The migration was corrected so consolidating duplicate genre names does not accidentally destroy valid `MediaGenre` relationships.
-
-## MangaLib detail loading
-
-Implemented MangaLib detail fetching.
-
-## MangaLib URL handling
-
-Corrected MangaLib media URL fallback.
-
-## Cross-source ID preservation
-
-Aggregator merge now preserves `source_ids` when provider results are merged.
-
-## Year-aware title deduplication
-
-Title deduplication now includes the work year in its secondary key to reduce accidental merging of same-title works from different years.
-
-## MangaLib/Shikimori ID correction
-
-A MangaLib `shiki_id` is now mapped to:
-
-```text
-source_ids["shikimori"]
-```
-
-instead of being incorrectly treated as a MAL ID.
-
-## Media details
-
-Media cards now attempt to load provider details through `MediaAggregator.get_media()`.
-
-## Handler canonical IDs
-
-Handlers and keyboards now use internal `Media.id` for callbacks and library operations.
-
----
-
-# 17. RECENT COMMITS
-
-Recent verified commits in `main` include:
-
-```text
-7a11adc5  fix: map MangaLib Shikimori IDs correctly
-6d144ccc  fix: make title deduplication year aware
-4bb20883  fix: preserve cross-source IDs during result merge
-3ba7e92a  fix: correct MangaLib media URL fallback
-03ebe7f2  feat: load MangaLib media details
-066c2179  fix: preserve media genre links during migration
-db0ded2a  feat: remove MAL dependency from genres
-86457e22  fix: make genre storage source independent
-4e090921  refactor: remove MAL identity from genres
-53b25e51  feat: load provider details for media cards
-```
-
-The latest verified commit is:
-
-```text
-7a11adc5e7078f55955c2a83500c3b56cef98394
-```
-
----
-
-# 18. CURRENT KNOWN PROBLEMS / TECHNICAL DEBT
-
-## CRITICAL — real DB migration has not been verified locally
-
-The migration chain now exists, but it must be tested against PostgreSQL.
-
-Required verification:
+Next action:
 
 ```bat
+git pull
 alembic upgrade head
 alembic current
 ```
 
-Expected head:
+## HIGH — search/save must be retested after DB fix
+
+The bot can poll Telegram and provider requests work, but search results were not successfully persisted/displayed during the first real DB test.
+
+Retest with:
 
 ```text
-0003_source_independent_genres
+Naruto
 ```
 
-If migration fails, inspect the exact database error before changing migration logic.
-
-Do not blindly delete the database.
-
-## HIGH — provider details are not fully standardized
-
-Different providers expose different metadata.
-
-The current aggregator merges common fields such as:
+Prefer a Russian query too:
 
 ```text
-title
-title_english
-title_original
-description
-image_url
-score
-year
-episodes
-chapters
-volumes
-url
-genres
-title_variants
+наруто
 ```
 
-A more formal normalized provider DTO/schema may eventually be useful, but do not add unnecessary abstractions until actual provider differences justify them.
+Observe whether Shikimori results are saved and shown when Jikan/MangaLib fail.
 
-## HIGH — cross-provider entity resolution is heuristic
+## HIGH — Jikan 504
 
-Current matching is useful but not a perfect identity system.
+Jikan returned HTTP 504 during the Naruto test. This may be temporary or provider-side. The aggregator must remain functional when Jikan is unavailable.
 
-Potential future improvement:
+Do not make Jikan a single point of failure.
 
-```text
-provider cross-links
-      ↓
-strong identity
-      ↓
-title + type + year
-      ↓
-conservative fuzzy matching
-```
+## HIGH — MangaLib search 404
 
-Avoid aggressive fuzzy matching.
+MangaLib search endpoint currently returned 404. Investigate the current MangaLib API/search mechanism later. Do not let it break Shikimori/Jikan results.
 
-## HIGH — concurrency race in `save_media()` is possible
+## HIGH — provider entity resolution remains heuristic
 
-Two users can theoretically save the same provider record at the same time.
+Keep identity matching conservative. Prefer false duplicates over false merges.
 
-The DB uniqueness constraint is the main protection.
+## HIGH — `save_media()` concurrency race is possible
 
-If this produces real `IntegrityError`s under testing, add a focused retry/upsert strategy.
-
-Do not overengineer before observing the problem.
+Only fix with focused upsert/retry handling if real concurrent `IntegrityError` is observed.
 
 ## MEDIUM — detail caching
 
-Details are currently fetched on demand.
+Provider details are loaded on demand. Add a sensible cache/refresh policy later.
 
-Future behavior should likely be:
+## MEDIUM — only anime/manga in current UI
 
-```text
-search
-  ↓
-save canonical media
-  ↓
-open card
-  ↓
-use cached data when fresh
-  ↓
-refresh provider data when stale/on demand
-```
+Future media types should fit the flexible architecture rather than getting separate tables without need.
 
-No full catalog caching.
+## MEDIUM — Remanga not implemented
 
-## MEDIUM — only anime/manga are currently exposed by UI
-
-The product vision includes:
-
-```text
-anime
-manga
-manhwa
-manhua
-novel/ranobe
-```
-
-but current UI is primarily:
-
-```text
-anime
-manga
-```
-
-Future support should preferably use a flexible media type taxonomy, not separate tables for every format.
-
-## MEDIUM — Remanga is not implemented
-
-Add it only after current three-provider flow is stable.
+Add only after current three-provider flow is stable.
 
 ---
 
-# 19. NEXT DEVELOPMENT ORDER
+# 18. EXACT NEXT DEVELOPMENT ORDER
 
-This is the current recommended order.
+## STEP 1 — Pull fixed migration
 
-## STEP 1 — Verify migrations
+Run:
 
-First priority:
-
-```text
-0001 → 0002 → 0003
+```bat
+git pull
 ```
 
-against a real PostgreSQL database.
-
-Confirm:
-
-- `media_sources` exists;
-- `media.mal_id` is gone after migration;
-- old MAL IDs were copied to `media_sources`;
-- `genres.mal_id` is gone;
-- genre links survive;
-- unique constraints exist.
-
-## STEP 2 — Static consistency check
-
-Search the repository for remaining old MAL-centric references such as:
+Expected GitHub commit:
 
 ```text
-Media.mal_id
-Genre.mal_id
-media.mal_id
-mal_id` used as canonical identity
-callbacks containing mal_id
+56cac7b7b0d75afac0b622d5db8f8dc18cc6d6ed
 ```
 
-Provider-level `mal_id` is allowed when it represents an actual MAL cross-source ID.
+## STEP 2 — Run migration
 
-The problem is using MAL ID as the internal identity.
+```bat
+alembic upgrade head
+```
 
-## STEP 3 — End-to-end bot test
+Expected successful output should include:
 
-Test this exact path:
+```text
+Running upgrade 0004_typed_media_sources -> 0005_bigint_identity
+```
+
+with no traceback.
+
+Then:
+
+```bat
+alembic current
+```
+
+Expected:
+
+```text
+0005_bigint_identity
+```
+
+## STEP 3 — Launch bot
+
+```bat
+python main.py
+```
+
+or the user's explicit Python 3.12 executable if needed.
+
+## STEP 4 — Search test
+
+Test:
 
 ```text
 /start
- ↓
-Search
- ↓
-Anime
- ↓
-query
- ↓
-results
- ↓
-open result
- ↓
-card
- ↓
-add to library
- ↓
-status
- ↓
-library
- ↓
-change status
- ↓
-rate
- ↓
-remove
+→ Аниме
+→ наруто
 ```
 
-Then repeat with manga.
+Then:
 
-## STEP 4 — Cross-source test
+```text
+Naruto
+```
 
-Use a title known to exist in multiple providers.
+Check that provider failures do not prevent successful Shikimori results from appearing.
+
+## STEP 5 — Open a result
 
 Verify:
 
-- results are merged when identity is strong;
-- `MediaSource` contains multiple IDs;
-- only one canonical `Media` is created;
-- one library entry is created;
-- opening the card can use the stored provider IDs.
+- result button works;
+- internal `media_id` is used;
+- media card loads;
+- image/description/title metadata are shown;
+- no callback references MAL as canonical identity.
 
-## STEP 5 — Improve search
+## STEP 6 — Add to library
 
-After basic correctness is confirmed:
+Verify:
 
-- improve alternate-name matching;
-- improve Russian query handling;
-- inspect false merges;
-- inspect false duplicates;
-- keep matching conservative.
+```text
+add
+→ choose status
+→ library
+```
 
-## STEP 6 — Improve media cards
+## STEP 7 — Change status/rating/remove
 
-Then add, where providers support it:
+Test every status and at least one rating.
 
-- authors;
-- studios;
-- source links;
-- related works;
-- better status information;
-- richer metadata.
+## STEP 8 — Manga
 
-## STEP 7 — Add Remanga
+Repeat search/card/library flow for a manga.
 
-Only after the current architecture is stable.
+## STEP 9 — Cross-source identity
 
-## STEP 8 — Update README
+Find a title available in multiple providers and verify:
 
-Once behavior and setup are confirmed.
+- one canonical `Media` row;
+- multiple `MediaSource` rows;
+- one `UserMedia` row;
+- provider IDs preserved.
 
-## STEP 9 — Web App
+## STEP 10 — Fix concrete provider/search issues
 
-Only after backend/media/library architecture is stable.
+After DB correctness is proven:
 
-## STEP 10 — Recommendations
+- investigate MangaLib 404;
+- improve Jikan resilience/retry only if justified;
+- inspect search ranking/duplicates;
+- improve Russian/alternate title matching.
 
-Only after enough normalized user/media data exists.
+## STEP 11 — Only then continue feature development
+
+Possible order:
+
+1. richer media cards;
+2. detail caching;
+3. Remanga provider;
+4. better statistics;
+5. API layer;
+6. Telegram Web App;
+7. recommendations.
 
 ---
 
-# 20. DO NOT DO YET
+# 19. DO NOT DO YET
 
 Do not currently:
 
@@ -1554,69 +1316,31 @@ Do not currently:
 - build ML recommendations;
 - build RPG/gamification systems;
 - add complicated progress mechanics;
-- split anime/manga/manhwa/manhua into separate database models without need;
 - build microservices;
 - aggressively fuzzy-merge titles;
-- make MAL the canonical identity again;
-- build the Web App before the core backend is stable;
-- require Docker for every local development task;
-- ask the user to manually edit PostgreSQL internals unless absolutely necessary.
+- restore MAL as canonical identity;
+- require Docker for local development;
+- rebuild the database blindly;
+- manually edit PostgreSQL internals without a concrete error;
+- build the Web App before the backend is stable.
 
 ---
 
-# 21. CODING / EDITING RULES
+# 20. CODING / EDITING RULES — USER REQUIREMENTS
 
-The user explicitly wants the assistant to behave as a technical editor.
+The user wants the assistant to behave as a technical editor.
 
-## Rule 1 — find the concrete problem first
-
-Explain briefly what is wrong and why.
-
-## Rule 2 — preserve logic
-
-Do not rewrite working architecture merely for style.
-
-## Rule 3 — minimal changes
-
-Make the smallest reasonable change that fixes the issue.
-
-## Rule 4 — no unnecessary dependencies
-
-Do not add libraries unless they are actually required.
-
-## Rule 5 — preserve formatting
-
-Use 4-space Python indentation and preserve surrounding formatting where practical.
-
-## Rule 6 — no `...` placeholders
-
-Never give the user code like:
-
-```python
-...
-```
-
-as a substitute for omitted code.
-
-If a function changes, provide the complete function.
-
-## Rule 7 — prefer exact replacements
-
-When explaining local changes, prefer:
-
-```text
-БЫЛО → СТАЛО
-```
-
-or provide a complete ready-to-replace function/file when appropriate.
-
-## Rule 8 — do not rewrite huge files unnecessarily
-
-If one or two functions need changes, do not make the user replace a 2500-line file.
-
-## Rule 9 — list multiple problems by priority
-
-Use:
+1. Find the concrete problem first.
+2. Explain it briefly and directly.
+3. Preserve existing logic and architecture unless a change is necessary.
+4. Make the smallest reasonable fix.
+5. Do not add unnecessary libraries.
+6. Preserve formatting and 4-space Python indentation.
+7. Never use `...` as a placeholder for omitted code.
+8. If changing a function, provide the complete function.
+9. Prefer `БЫЛО → СТАЛО` for local replacements.
+10. Do not ask the user to replace a huge file when only a small function changes.
+11. If several issues exist, list them by priority:
 
 ```text
 КРИТИЧНО
@@ -1624,25 +1348,13 @@ Use:
 СРЕДНИЙ
 ```
 
-## Rule 10 — proceed without unnecessary confirmation
-
-The user explicitly allows the assistant to make reasonable development decisions without asking every time.
-
-If the user says:
-
-```text
-давай
-делай
-продолжай
-```
-
-continue with the next logical development step.
-
-Ask only when the missing information genuinely changes the product or makes safe implementation impossible.
+12. If the user says `давай`, `делай` or `продолжай`, take the next logical development step without unnecessary confirmation.
+13. Do not claim something works unless it has actually been tested.
+14. When repository tools are available, inspect the current GitHub code before editing it.
 
 ---
 
-# 22. GIT WORKFLOW
+# 21. GIT WORKFLOW
 
 Repository:
 
@@ -1656,155 +1368,40 @@ Branch:
 main
 ```
 
-The user expects changes to be committed to GitHub when the assistant has the required tool access.
-
-When changing a file:
-
-1. inspect current version;
-2. preserve newer changes;
-3. make focused changes;
-4. use a meaningful commit message;
-5. verify the write succeeded;
-6. report the commit.
-
-The user can then update their local clone with:
-
-```bat
-git pull
-```
-
-If local changes conflict, explain the exact conflict instead of telling the user to delete changes blindly.
-
----
-
-# 23. LOCAL COMMANDS
-
-Useful commands:
+Normal local commands:
 
 ```bat
 git status
 git pull
 git log --oneline -10
-tree /F
-python --version
-python -m pip --version
 alembic current
 alembic upgrade head
+python main.py
 ```
 
-The user previously confused:
+When changing code:
 
-```text
-free /F
-```
+1. inspect current file;
+2. preserve newer changes;
+3. make focused change;
+4. commit with a meaningful message;
+5. verify GitHub write;
+6. tell the user the commit SHA/message;
+7. user can run `git pull` locally.
 
-with:
-
-```text
-tree /F
-```
-
-This is irrelevant to the project.
+Never tell the user to blindly discard local changes.
 
 ---
 
-# 24. WEB APP PLAN
+# 22. IMPORTANT PROJECT SEPARATION
 
-A Telegram Web App is planned as a later stage.
-
-Potential UI:
-
-- dark theme;
-- dashboard;
-- library tabs;
-- search;
-- filters;
-- title pages;
-- profile;
-- statistics;
-- recommendations;
-- infinite scrolling where useful.
-
-The existing `api/` directory is currently only a placeholder.
-
-Do not build the complete Web App yet.
-
-The backend/data model should first become stable enough that both Telegram handlers and future Web App endpoints can reuse the same application logic.
-
----
-
-# 25. RECOMMENDATION PLAN
-
-Later recommendation phases:
-
-### Phase 1 — content based
-
-```text
-ratings
-+ genres
-+ metadata
-→ recommendations
-```
-
-### Phase 2 — media similarity
-
-```text
-Media A ↔ Media B
-```
-
-### Phase 3 — collaborative
-
-```text
-similar users
-→ titles they liked
-→ recommendations
-```
-
-Do not implement this before the library/media model has enough real data.
-
----
-
-# 26. NEW CHAT INSTRUCTIONS
-
-When a new chat continues this project:
-
-1. Read `PROJECT_STATE.md` first.
-2. Use the current GitHub repository as the code source of truth.
-3. Do not assume the code exactly matches this document if newer commits exist.
-4. Check the current branch/commit and relevant files before editing.
-5. Do not ask the user to repeat project history already captured here.
-6. Preserve the product decisions in this document unless the user explicitly changes them.
-7. Do not assume a feature is complete merely because a provider/model/file exists.
-8. Verify integration points.
-9. Follow the user's coding/editing rules.
-10. If the user says `давай`, `делай` or `продолжай`, take the next logical implementation step.
-11. Keep explanations concise and practical in Russian.
-12. Do not claim real-world runtime success without actual testing.
-
-## Default next action
-
-If asked to continue without a specific task, do this:
-
-```text
-1. inspect current repository
-2. verify Alembic 0003 against models
-3. search for remaining MAL-only identity references
-4. fix concrete inconsistencies
-5. verify handlers/repository/provider integration
-6. then proceed to end-to-end testing
-```
-
----
-
-# 27. IMPORTANT PROJECT SEPARATION
-
-This project is:
+This state file belongs ONLY to:
 
 ```text
 Kerdor/anime_tracker_bot
 ```
 
-Do not confuse it with other projects discussed by the user, especially:
+Do not confuse it with:
 
 ```text
 InsaneBot-discord
@@ -1812,12 +1409,50 @@ nightmare_spire_bot
 solo_rank_bot
 ```
 
-Those projects have different architectures and state files.
-
-This `PROJECT_STATE.md` belongs **only** to `anime_tracker_bot`.
+Those projects have unrelated architectures and state.
 
 ---
 
-# 28. CURRENT ONE-LINE SUMMARY
+# 23. NEW CHAT HANDOFF INSTRUCTIONS
 
-> **Anime Tracker Bot is currently in the middle of a successful migration from a MAL-centric tracker to a canonical multi-source architecture (`Media → MediaSource → UserMedia`); migrations 0001–0003, source-aware repository logic, aggregator search, MangaLib details and canonical Telegram callbacks are in place, and the next priority is real PostgreSQL migration verification plus a full end-to-end search/card/library test before adding more providers or features.**
+When continuing in a new chat:
+
+1. Read this `PROJECT_STATE.md` first.
+2. Check the current GitHub `main` commit because this file can become stale after future commits.
+3. Do not ask the user to repeat the history documented here.
+4. Do not assume a file is correct merely because it exists; inspect integration points.
+5. Preserve the product decisions unless the user explicitly changes them.
+6. Treat provider failures independently from database failures.
+7. Never assume Docker is required.
+8. Never ask for real secrets.
+9. Follow the user's coding/editing rules exactly.
+10. If the user says `давай/делай/продолжай`, continue with the next logical task.
+11. Keep explanations practical and in Russian.
+12. Do not claim end-to-end success until the actual migration and Telegram search/library flow have been tested.
+
+### Immediate continuation point
+
+The project is currently paused at this exact point:
+
+```text
+GitHub:
+56cac7b7 Fix bigint identity migration for existing PostgreSQL defaults
+
+Local:
+old 0005 migration was executed and failed because PostgreSQL id columns already
+have sequence-backed defaults.
+
+Next:
+git pull
+alembic upgrade head
+alembic current
+then run the bot and retest Naruto search.
+```
+
+After that, investigate whether the search result persistence error is gone. If it remains, inspect `database/repository.py`, `bot/handlers.py`, the current migration/schema state, and the exact traceback before changing anything.
+
+---
+
+# 24. ONE-LINE SUMMARY
+
+> **Anime Tracker Bot has successfully moved toward a canonical multi-source architecture (`Media → MediaSource → UserMedia`), the bot itself polls Telegram and provider requests are functioning, PostgreSQL is installed locally, migrations 0001–0004 were previously applied, the newly introduced 0005 migration was proven incorrect against real PostgreSQL and has now been fixed on GitHub as a no-op because the initial schema already provides sequence-backed BIGINT defaults; the exact next step is to pull commit `56cac7b7`, run `alembic upgrade head`, verify revision 0005, then retest Naruto search and the full add/status/rating/library flow.**
