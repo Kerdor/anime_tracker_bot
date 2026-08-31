@@ -125,14 +125,22 @@ async def send_media_card(message: Message, item: dict, reply_markup=None) -> No
     text = media_card_text(item)
     image_url = item.get("image_url")
     if image_url:
-        await message.answer_photo(
-            photo=image_url,
-            caption=text,
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.HTML,
-        )
-    else:
-        await message.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+        try:
+            await message.answer_photo(
+                photo=image_url,
+                caption=text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        except Exception:
+            pass
+
+    await message.answer(
+        text,
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def load_media_details(media, item: dict) -> dict:
@@ -378,7 +386,6 @@ async def media_handler(callback: CallbackQuery) -> None:
         return
 
     item = await load_media_details(media, media_to_item(media))
-    await callback.message.delete()
     await send_media_card(callback.message, item, media_keyboard(media_id))
     await callback.answer()
 
@@ -403,10 +410,24 @@ async def status_handler(callback: CallbackQuery) -> None:
             return
         entry = await add_to_library(session, user.id, media, status)
 
-    await callback.message.edit_reply_markup(reply_markup=library_actions(media_id, status, entry.score))
-    await callback.answer(f"Сохранено: {STATUS_NAMES[status]}")
+    await callback.message.edit_reply_markup(reply_markup=library_actions(media_id, entry.status, entry.score))
+    await callback.answer("Добавлено в библиотеку!")
 
 
-@router.callback_query(F.data == "search_noop")
-async def search_noop_handler(callback: CallbackQuery) -> None:
+@router.callback_query(F.data == "profile")
+async def profile_handler(callback: CallbackQuery) -> None:
+    from bot.profile import profile_text
+
+    async with SessionLocal() as session:
+        user = await get_or_create_user(session, callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
+        text = await profile_text(session, user.id)
+
+    await callback.message.edit_text(text, reply_markup=main_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cancel")
+async def cancel_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.edit_text("🏠 Главное меню", reply_markup=main_menu())
     await callback.answer()
