@@ -46,7 +46,9 @@ class ShikimoriClient(MediaProvider):
                 image_url = None
 
         description = item.get("description") or ""
-        description = re.sub(r"\[/?(?:character|b|i|u)(?:=[^\]]+)?\]", "", description)
+        description = re.sub(r"\[/?(?:character|b|i|u)(?:=[^\]]+)?\]", "", description, flags=re.IGNORECASE)
+        description = re.sub(r"\[\[([^\[\]]+)\]\]", r"\1", description)
+        description = re.sub(r"\[([^\[\]]+)\]", r"\1", description)
         description = re.sub(r"\s+", " ", description).strip()
         if len(description) > 500:
             description = description[:497].rsplit(" ", 1)[0] + "..."
